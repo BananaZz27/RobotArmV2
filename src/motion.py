@@ -71,8 +71,12 @@ class Mover:
             q_prev = ik.q
         # เวลา: ปลายแขน ≤ v_cart และทุกข้อ ≤ v (ความเร็วสูงสุดของ min-jerk = 1.875 × ระยะ / T)
         joint_rate = max(max(abs(b - a) for a, b in zip(p, q)) for p, q in zip(points, points[1:])) * n
-        T = 1.875 * max(length / self.v_cart, joint_rate / self.v)
-        self._set_path(points, T, points[-1])
+        t_cart, t_joint = length / self.v_cart, joint_rate / self.v
+        if t_joint > 3 * t_cart + 1.0:               # เส้นตรงผ่านใกล้ท่าเหยียดสุด ข้อต้องหมุนเร็วมาก → ช้าเกินใช้
+            self.goto_q(end.q)
+            self.message = "ใกล้ท่าเหยียดสุด → ไปแบบหมุนข้อต่อแทนเส้นตรง"
+            return ""
+        self._set_path(points, 1.875 * max(t_cart, t_joint), points[-1])
         return ""
 
     def jog_joint(self, i, direction):
