@@ -17,7 +17,7 @@ TICK_PER_DEG = RAW_MAX / DEG_RANGE
 # center: raw ตอนท่อนนั้นตั้งตรงชี้ฟ้า = q 0° (คาลิเบรตด้วย calib_app.py)
 # dir: +1/−1 ให้ q บวก = ก้มไปข้างหน้า / ฐานหันซ้าย (ทวนเข็มมองจากบน) / หัวเอียงขวา
 JOINTS = [
-    {"name": "J1 ฐาน", "id": 4, "dir": -1, "center": 556, "raw_min": 10, "raw_max": 1012, "used": True},
+    {"name": "J1 ฐาน", "id": 4, "dir": -1, "center": 484, "raw_min": 10, "raw_max": 1012, "used": True},
     {"name": "J2 ไหล่", "id": 9, "dir": -1, "center": 506, "raw_min": 107, "raw_max": 883, "used": True},
     {"name": "J3 ศอก", "id": 7, "dir": +1, "center": 527, "raw_min": 10, "raw_max": 1012, "used": True},
     {"name": "J4 คอ", "id": 2, "dir": -1, "center": 522, "raw_min": 202, "raw_max": 821, "used": True},

@@ -18,6 +18,7 @@ class Driver:
         self._corr = None          # {"target", "offset", "rounds", "check_at", "moving"}
         self._thread = None
         self._running = False
+        self._last = None          # เวลาของ tick ก่อน — เดิน Mover ตามเวลาจริง ไม่ใช่ตามรอบ
 
     # ---------- ใช้จาก GUI ----------
     def do(self, fn):
@@ -71,13 +72,16 @@ class Driver:
 
     def tick(self, now=None):
         now = time.monotonic() if now is None else now
+        # Windows sleep หยาบ ~16 ms → รอบจริงยาวกว่า 40 ms; ใช้เวลาจริง (≤ 0.1 s กันกระโดดตอนเครื่องค้าง)
+        dt = self.period if self._last is None else min(max(now - self._last, 0.0), 0.1)
+        self._last = now
         with self.lock:
             if self.mover.busy:
                 why = self._safe()
                 if why:
                     self._halt("หยุด: " + why)
                     return
-                q = self.mover.step(self.period)
+                q = self.mover.step(dt)
                 if not self.link.send_q(q, config.STREAM_MS):
                     self._halt("หยุด: " + (self.link.message or "แขนไม่รับคำสั่ง"))
                     return
