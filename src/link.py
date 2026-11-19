@@ -31,6 +31,7 @@ class SimLink:
         self.volt = None
         self.message = ""
         self.torque_on = True
+        self.servo = {}
 
     def send_q(self, q, time_ms):
         if not all(math.isfinite(v) for v in q) or jump_too_big(self.q_actual, q, time_ms):
@@ -69,6 +70,7 @@ class DirectLink:
         self.message = ""
         self.last_rx = -math.inf
         self.q_sent = None                        # ท่าล่าสุดที่ส่ง (ใช้กันกระโดด)
+        self.servo = {}                           # id → {"raw", "load" %, "temp" °C} ข้อที่ตอบรอบล่าสุด
         try:
             with self.lock:
                 self.bus.detect_echo()
@@ -92,16 +94,24 @@ class DirectLink:
         self.q_sent = None
 
     def _read_all(self):
-        q, volt, any_ok = [], None, False
+        """อ่าน addr 56..63 ทุกข้อ: ตำแหน่ง(2) ความเร็ว(2) โหลด(2) ไฟ(1) อุณหภูมิ(1)"""
+        q, volt, any_ok, servo = [], None, False, {}
         with self.lock:
             for j in config.JOINTS:
                 if not j["used"]:
                     q.append(0.0)
                     continue
-                got = self.bus.read_pos_volt(j["id"])
-                q.append(config.raw_to_q(j, got[0]) if got else math.nan)
-                if got:
-                    volt, any_ok = got[1], True
+                d = self.bus.read(j["id"], 56, 8)
+                if d is None:
+                    q.append(math.nan)
+                    continue
+                raw, load = (d[0] << 8) | d[1], (d[4] << 8) | d[5]
+                # โหลด: bit 10 = ทิศ, 10 bit ล่าง = ขนาด (0..1000 = 0..100 %)
+                servo[j["id"]] = {"raw": raw, "load": (-1 if load & 0x400 else 1) * (load & 0x3FF) / 10,
+                                  "temp": d[7]}
+                q.append(config.raw_to_q(j, raw))
+                volt, any_ok = d[6] / 10, True
+        self.servo = servo
         if any_ok:
             self.q_actual, self.volt = q, volt
             self.last_rx = time.monotonic()

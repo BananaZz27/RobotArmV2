@@ -10,5 +10,6 @@
 
 ## โค้ด
 - ค่าคาลิเบรตอยู่ `src/config.py` ที่เดียว (J5 หัวถอดแล้ว `used=False`, d5 = 50 mm)
-- `motion.py` (Mover ไม่แตะฮาร์ดแวร์) → `driver.py` (thread 40 ms) → `link.py` (DirectLink / SimLink) → `app.py`
+- `qt_app.py` (PyQt6 แบบ ws-control) + `viewer3d.py` (PyVista) → `motion.py` (Mover ไม่แตะฮาร์ดแวร์) → `driver.py` (thread 40 ms) → `link.py` (DirectLink / SimLink)
+- Windows Region เป็นไทย → `qt_app.main()` บังคับ QLocale en-US ไม่งั้นช่องตัวเลขเป็นเลขไทย
 - test: `cd src && ../.venv/Scripts/python.exe -m pytest -q`

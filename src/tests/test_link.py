@@ -88,3 +88,8 @@ def test_simlink_follows():
     s = SimLink()
     assert s.send_q([1, 2, 3, 4, 5], 2000) and s.q_actual == [1, 2, 3, 4, 0.0]
     assert s.simulated and s.online()
+
+
+def test_reads_temp_and_load(fake, link):
+    assert _wait(lambda: 9 in link.servo)
+    assert link.servo[9]["temp"] == 31 and link.servo[9]["load"] == 0
