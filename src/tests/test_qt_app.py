@@ -146,3 +146,35 @@ def test_connect_success_target_is_actual(win):
 
 def test_no_speed_cap_default_fast(win):
     assert win.driver.mover.v >= 100
+
+
+def test_jog_joint_hold_and_release(win):
+    win.jog_buttons[(1, +1)].pressed.emit()
+    _run(win, 0.5)
+    win.poll()
+    assert win.driver.mover.q[1] > 5 and win.q_target[1] == pytest.approx(win.driver.mover.q[1])
+    win.jog_buttons[(1, +1)].released.emit()
+    _run(win, 0.5)
+    assert not win.driver.mover.busy
+
+
+def test_jog_xyz_stops_at_singularity_and_logs(win):
+    win.set_target([0, 30, 20, 20, 0])
+    win.send()
+    _run(win, 2.0)
+    win.jog_buttons[("X", +1)].pressed.emit()
+    _run(win, 5.0)
+    win.poll()
+    assert not win.driver.mover.busy and "singularity" in win.log_view.toPlainText()
+
+
+def test_singularity_label_warns(win):
+    win.set_target([0, 0, 0, 0, 0])                 # ชี้ฟ้า = singular ทั้ง 2 แบบ
+    assert "SINGULARITY" in win.sing_label.text() and "e63946" in win.sing_label.styleSheet()
+    win.set_target([10, 30, 50, 20, 0])
+    assert "ไม่ใกล้" in win.sing_label.text()
+
+
+def test_ik_shows_proof(win):
+    win.ik_solve(send=False)
+    assert "det J" in win.ik_result.toPlainText()

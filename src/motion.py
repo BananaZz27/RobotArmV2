@@ -9,6 +9,7 @@ import numpy as np
 
 import config
 from kinematics import forward_kinematics, inverse_kinematics
+from singularity import getting_worse
 
 N = len(config.JOINTS)
 
@@ -117,6 +118,8 @@ class Mover:
 
     # ---------- เดินหนึ่งก้าว ----------
     def step(self, dt):
+        if dt <= 0:                                  # เวลาไม่เดิน → ไม่ขยับ (กันหารศูนย์)
+            return list(self.q)
         if self.mode == "path":
             self._step_path(dt)
         elif self.mode == "jog_joint":
@@ -170,19 +173,31 @@ class Mover:
         if d == 0 and abs(self._vc) < 1e-9:
             self._vc, self.mode = 0.0, None
             return
-        tip = self._tip.copy()
-        tip[axis] += self._vc * dt
-        ik = inverse_kinematics(*tip, self._phi, self.q[2] >= 0, theta1_prev=self.q[0])
-        if not ik.ok:
-            self.message = "หยุด: " + ik.reason
+        for _ in range(2):                                     # ข้อต้องหมุนเร็วเกิน v → ลดความเร็วปลายแขนแล้วคิดใหม่
+            tip = self._tip.copy()
+            tip[axis] += self._vc * dt
+            ik = inverse_kinematics(*tip, self._phi, self.q[2] >= 0, theta1_prev=self.q[0])
+            if not ik.ok:
+                # ขอบพื้นที่เอื้อมถึง = แขนเหยียดสุด (θ3 = 0) = singularity — ก้าวเดียวข้ามโซนเตือนได้ตอนเร็ว
+                edge = "เอื้อมไม่ถึง" in ik.reason
+                self.message = ("หยุด: ใกล้ singularity — แขนเหยียดสุด (ขอบพื้นที่เอื้อมถึง)" if edge
+                                else "หยุด: " + ik.reason)
+                self.stop()
+                return
+            q = clamp_q(ik.q)
+            ratio = max(abs(b - a) for a, b in zip(self.q, q)) / (self.v * dt)
+            if ratio <= 1.0:
+                break
+            self._vc /= ratio * 1.01
+        else:
+            q = self.q                                         # ยังเร็วเกิน → ก้าวนี้ไม่ขยับ
+        worse = getting_worse(self.q, q)                       # กำลังเข้าใกล้ singularity (ถอยออกได้)
+        if worse:
+            self.message = "หยุด: ใกล้ singularity — " + worse
             self.stop()
             return
-        q = clamp_q(ik.q)
-        if max(abs(b - a) for a, b in zip(self.q, q)) > self.v * dt:   # ใกล้ท่าเหยียดสุด ข้อต้องหมุนเร็วเกิน
-            self.message = "หยุด: ใกล้ท่าเหยียดสุด ข้อต่อต้องหมุนเร็วเกินที่ตั้ง"
-            self.stop()
-            return
-        self._tip, self.q = tip, q
+        if q is not self.q:
+            self._tip, self.q = tip, q
 
     def _step_follow(self, dt):
         done = True

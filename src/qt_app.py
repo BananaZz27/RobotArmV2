@@ -24,6 +24,7 @@ from driver import Driver
 from kinematics import check_limits, forward_kinematics, inverse_kinematics
 from link import DirectLink, SimLink
 from motion import Mover, clamp_q
+from singularity import analyze, report
 
 USED = [i for i, j in enumerate(config.JOINTS) if j["used"]]
 SLIDER_SCALE = 10      # slider เป็น int → ×10 ให้ละเอียด 0.1°
@@ -59,6 +60,7 @@ class MainWindow(QMainWindow):
         self.viewer = viewer
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_joint_tab(), "Joint")
+        self.tabs.addTab(self._build_jog_tab(), "Jog")
         self.tabs.addTab(self._build_ik_tab(), "Inverse Kinematics")
         self.tabs.addTab(self._build_status_tab(), "Status")
         self.log_view = QPlainTextEdit(readOnly=True, maximumBlockCount=500)
@@ -139,6 +141,48 @@ class MainWindow(QMainWindow):
         lay.addStretch(1)
         return w
 
+    def _build_jog_tab(self):
+        grid = QGridLayout()
+        grid.addWidget(QLabel("<b>ข้อต่อ</b> (+ = ก้มหน้า / ฐานหันซ้าย)"), 0, 0, 1, 3)
+        self.jog_buttons = {}
+
+        def hold(text, row, col, fn):
+            b = QPushButton(text)
+            b.setAutoRepeat(False)
+            b.pressed.connect(lambda: self.jog(fn))          # กดค้าง = เร่งขึ้น
+            b.released.connect(self.jog_release)             # ปล่อย = ผ่อนจนหยุด
+            grid.addWidget(b, row, col)
+            return b
+
+        for r, i in enumerate(USED, start=1):
+            grid.addWidget(QLabel(config.JOINTS[i]["name"]), r, 0)
+            for col, d in ((1, -1), (2, +1)):
+                self.jog_buttons[(i, d)] = hold("−" if d < 0 else "+", r, col, lambda m, i=i, d=d: m.jog_joint(i, d))
+        base = len(USED) + 1
+        grid.addWidget(QLabel("<b>ปลายแขน</b> (เส้นตรง, φ คงที่)"), base, 0, 1, 3)
+        for k, axis in enumerate("XYZ"):
+            grid.addWidget(QLabel(axis), base + 1 + k, 0)
+            for col, d in ((1, -1), (2, +1)):
+                self.jog_buttons[(axis, d)] = hold(f"{axis}{'−' if d < 0 else '+'}", base + 1 + k, col,
+                                                   lambda m, k=k, d=d: m.jog_xyz(k, d))
+        hint = QLabel("กดค้าง = แขนเคลื่อนต่อเนื่อง · ปล่อย = หยุดนุ่ม ๆ\n"
+                      "jog ปลายแขนหยุดเองก่อนเข้า singularity (ปลายแขนเหนือแกนฐาน / แขนเหยียดสุด)\n"
+                      "— หลักฐาน |det J| ดูที่กล่องขวาของ Forward Kinematics · ถอยออกจาก singularity ได้เสมอ")
+        hint.setStyleSheet("color:#666")
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.addLayout(grid)
+        lay.addWidget(hint)
+        lay.addStretch(1)
+        return w
+
+    def jog(self, fn):
+        if self._ready(self.driver.mover.q):
+            self.driver.do(fn)
+
+    def jog_release(self):
+        self.driver.do(lambda m: m.release())
+
     def _build_ik_tab(self):
         reach = config.D1 + config.A2 + config.A3 + config.D5
         self.ik_x = _spin(-reach, reach, 5, " mm", 110)
@@ -217,6 +261,12 @@ class MainWindow(QMainWindow):
         lay.addSpacing(12)
         lay.addWidget(QLabel("T⁰₅ ="))
         lay.addWidget(self.fk_table)
+        lay.addSpacing(12)
+        self.sing_label = QLabel()                    # ผลตรวจ singularity ของท่า Target + หลักฐาน (singularity.py)
+        self.sing_label.setFont(QFont("Tahoma", 9))   # Consolas ไม่มีอักษรไทย → ตัวเล็กผิดปกติ
+        self.sing_label.setToolTip("|det J| = r·a2·a3·|sin θ3| — คำนวณ 2 ทาง (ตัวเลข/สูตร) ต้องเท่ากัน\n"
+                                   "= 0 เมื่อปลายแขนอยู่บนแกนฐาน (r = 0) หรือแขนเหยียด/พับสุด (θ3 = 0°/180°)")
+        lay.addWidget(self.sing_label)
         lay.addStretch(1)
         return box
 
@@ -236,6 +286,9 @@ class MainWindow(QMainWindow):
                 item = QTableWidgetItem(f"{fk.T[r, c]:.1f}" if c == 3 else f"{fk.T[r, c]:.3f}")
                 item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self.fk_table.setItem(r, c, item)
+        warn = bool(analyze(self.q_target)["warnings"])
+        self.sing_label.setText(report(self.q_target))
+        self.sing_label.setStyleSheet("color:#e63946; font-weight:bold" if warn else "color:#2a9d8f")
         self.viewer.show_target(self.q_target)
 
     def on_joint(self, i, deg):
@@ -300,8 +353,11 @@ class MainWindow(QMainWindow):
             else:
                 lines.append(f"✗ {name:<10} {ik.reason}")
         head = "✅ ได้คำตอบ (★ = ที่ใช้)" if best else "❌ ไปจุดนี้ไม่ได้"
-        self.ik_result.setPlainText(head + "\n\n" + "\n".join(lines))
+        proof = "\n\n" + report(best) if best else ""
+        self.ik_result.setPlainText(head + "\n\n" + "\n".join(lines) + proof)
         if best:
+            if analyze(best)["warnings"]:
+                self.log(f"⚠ จุด ({x:.0f}, {y:.0f}, {z:.0f}) ใกล้ singularity — ดูหลักฐานในแท็บ IK")
             self.set_target(best)
             if send:
                 self.send()
@@ -357,6 +413,8 @@ class MainWindow(QMainWindow):
         if self.driver.message:
             self.log(self.driver.message)
             self.driver.message = ""
+        if m.mode in ("jog_joint", "jog_xyz"):                      # jog: Target/slider ตามท่าที่กำลังวิ่ง
+            self.set_target(m.q)
         q_act = link.q_actual if not link.simulated else m.q        # จำลอง: แสดงท่าที่กำลังวิ่ง
         if not self.torque_on and link.q_actual is not None:          # ปลด torque: Target ตามแขนจริง
             self.set_target(link.q_actual)

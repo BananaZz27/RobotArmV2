@@ -121,7 +121,7 @@ def test_jog_stops_at_limit():
 
 def test_jog_xyz_moves_tip_along_axis():
     q0 = [0, 10, 30, 30, 0]
-    m = Mover(q0, v=30, a=30, v_cart=20)
+    m = Mover(q0, v=30, v_cart=20)
     p0 = _tip(q0)
     m.jog_xyz(2, -1)                          # Z ลง
     traj = _run(m, 1.0, v_check=30)
@@ -134,7 +134,7 @@ def test_jog_xyz_moves_tip_along_axis():
 
 def test_jog_xyz_unreachable_stops():
     q0 = [0, 0, 0, 5, 0]                      # เกือบเหยียดสุด → ดันขึ้นต่อไม่ได้
-    m = Mover(q0, v=30, a=30, v_cart=20)
+    m = Mover(q0, v=30, v_cart=20)
     m.jog_xyz(2, +1)
     _run(m, 3.0, v_check=30)
     assert not m.busy and m.message
@@ -178,3 +178,19 @@ def test_finished_flag_once():
     m.goto_q([0, 2, 0, 0, 0])
     _run(m, 2)
     assert m.pop_finished() == pytest.approx([0, 2, 0, 0, 0]) and m.pop_finished() is None
+
+
+def test_jog_xyz_stops_before_singularity():
+    m = Mover([0, 30, 20, 20, 0], v=150, a=600, v_cart=100)
+    m.jog_xyz(0, +1)                          # ดันออกไปข้างหน้า → แขนเหยียดตรง (θ3 → 0)
+    _run(m, 5.0, v_check=150)
+    assert not m.busy and "singularity" in m.message
+
+
+def test_jog_xyz_can_leave_singularity():
+    q0 = [0, 30, 3, 10, 0]                    # เกือบเหยียด (อยู่ในโซนเตือน)
+    m = Mover(q0, v=150, a=600, v_cart=50)
+    p0 = _tip(q0)
+    m.jog_xyz(0, -1)                          # ดึงเข้า = ออกจาก singularity → ต้องไปได้
+    _run(m, 0.5, v_check=150)
+    assert _tip(m.q)[0] < p0[0] - 5
