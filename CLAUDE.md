@@ -15,3 +15,4 @@
 - test: `cd src && ../.venv/Scripts/python.exe -m pytest -q`
 - Windows: รอบ thread 40 ms แกว่งจริง 27–52 ms → driver ส่ง "ท่าล่วงหน้า STREAM_MS (80 ms) + เวลา 80 ms" (`Mover.peek`) ไม่งั้น jog กระตุก (วัดแขนจริง 2026-11-19: ความเร็วศอกแกว่ง ±10.8 → ±5.8 °/s, ตามหลัง 4.4° → 2.5°)
 - GitHub: `BananaZz27/RobotArmV2` (private) branch `main` · เอกสารอธิบายสูตร: `docs/explain.md` (กราฟสร้างจาก `docs/make_charts.py`)
+- **English version:** `BananaZz27/RobotArmV2-EN` (local `D:\PIM\RobotArmV2-EN`, translated at f1cef72) — port code changes there too
