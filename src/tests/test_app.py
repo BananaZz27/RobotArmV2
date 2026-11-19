@@ -1,12 +1,12 @@
-# ทดสอบหน้าต่างแบบง่าย (ซ่อนไว้) — แขนจำลอง, เรียก handler ตรง ๆ แล้วเดิน driver ด้วย tick()
+# ทดสอบหน้าต่างแบบ v2 (ซ่อนไว้) — แขนจำลอง, เรียก handler ตรง ๆ แล้วเดิน driver ด้วย tick()
 import time
 import tkinter as tk
 
 import config
 import pytest
 import serial
-from app import App, pick_phi
-from kinematics import forward_kinematics
+from app import DIRECT, SIM, App
+from link import SimLink
 
 DT = config.PERIOD_S
 
@@ -40,68 +40,94 @@ def _run(app, seconds):
         app.driver.tick(now=t)
 
 
-def test_starts_in_sim(app):
-    assert app.mode_text.get() == "โหมดจำลอง" and app.link.simulated
-
-
-def test_slider_follow(app):
-    app.slider_vars[2].set(6.0)
+def test_slider_only_previews(app):
+    app.slider_vars[1].set(10.0)
     app.on_slider()
+    _run(app, 1.0)
+    assert app.q_cmd[1] == 10.0 and app.link.q_actual[1] == 0.0      # ยังไม่กดส่ง = ไม่ขยับ
+
+
+def test_send_moves_smoothly(app):
+    app.set_q([0, 10, 0, 0, 0])
+    assert app.on_send()
+    _run(app, 0.2)
+    assert 0 < app.link.q_actual[1] < 10                                # กำลังไป ไม่กระโดดถึงทันที
     _run(app, 3.0)
-    assert app.link.q_actual[2] == pytest.approx(6)
+    assert app.link.q_actual[1] == pytest.approx(10)
 
 
-def test_goto_xyz(app):
-    goal = forward_kinematics([0, 10, 20, 20, 0])
-    for k, v in zip("XYZ", (goal.x, goal.y, goal.z)):
-        app.xyz_vars[k].set(f"{v:.1f}")
-    app.on_goto_xyz()
-    _run(app, 10.0)
-    tip = forward_kinematics(app.link.q_actual)
-    assert abs(tip.x - goal.x) < 0.2 and abs(tip.z - goal.z) < 0.2
+def test_fk_text(app):
+    app.set_q([30, 20, 40, 30, 0])
+    assert all(t in app.fk_text.get() for t in ("157.6", "91.0", "274.6"))
 
 
-def test_goto_xyz_unreachable(app):
-    for k, v in zip("XYZ", ("500", "0", "0")):
-        app.xyz_vars[k].set(v)
-    app.on_goto_xyz()
-    assert "ไม่ได้" in app.status.get() and not app.driver.mover.busy
+def test_ik_preview_does_not_send(app):
+    assert app.on_ik_preview()
+    _run(app, 1.0)
+    assert app.link.q_actual == [0.0] * 5
 
 
-def test_goto_xyz_bad_input(app):
-    app.xyz_vars["X"].set("abc")
-    app.on_goto_xyz()
-    assert "ตัวเลข" in app.status.get()
+def test_ik_send(app):
+    app.on_ik_send()
+    _run(app, 6.0)
+    assert app.link.q_actual[:4] == pytest.approx(app.q_cmd[:4], abs=1e-6)
 
 
-def test_pick_phi_prefers_current():
-    q = [0, 10, 20, 20, 0]
-    f = forward_kinematics(q)
-    assert abs(pick_phi(q, f.x, f.y, f.z) - f.phi) <= 2.5
-    assert pick_phi(q, 500, 0, 0) is None
+def test_ik_unreachable(app):
+    app.ik_entries["x"].set("500")
+    assert not app.on_ik_preview() and "เอื้อมไม่ถึง" in app.status.get()
+
+
+def test_ik_bad_input(app):
+    app.ik_entries["phi"].set("abc")
+    assert not app.on_ik_preview()
+
+
+def test_over_limit_not_sent(app):
+    app.q_cmd = [0, 500, 0, 0, 0]
+    assert not app.on_send()
+
+
+def test_low_volt_blocks_send(app):
+    app.link.volt = 5.0
+    assert not app.on_send() and "ไฟ" in app.status.get()
+
+
+def test_unused_joint_slider_locked(app):
+    assert str(app.sliders[4].cget("state")) == "disabled"
 
 
 def test_stop(app):
-    app.driver.do(lambda m: m.goto_q([0, 20, 0, 0, 0]))
+    app.set_q([0, 20, 0, 0, 0])
+    app.on_send()
     _run(app, 0.5)
     app.on_stop()
     assert not app.driver.mover.busy and "หยุด" in app.status.get()
 
 
-def test_speed_applies(app):
+def test_speed(app):
     app.speed.set(5)
     app.on_speed()
-    assert app.driver.mover.v == 5 and app.driver.mover.v_cart == 10
+    assert app.driver.mover.v == 5
 
 
-def test_connect_failure_stays_sim(app):
+def test_connect_direct_failure_back_to_sim(app):
     def boom():
         raise serial.SerialException("busy")
     app.connect_fn = boom
-    app.on_connect()
-    assert app.link.simulated and "ต่อไม่ได้" in app.status.get()
+    app.connect(DIRECT)
+    assert app.link.simulated and app.port_var.get() == SIM
 
 
-def test_tick_updates(app):
+def test_connect_direct_sets_sliders_to_actual(app):
+    arm = SimLink()
+    arm.q_actual = [5.0, 6.0, 7.0, 8.0, 0.0]
+    app.connect_fn = lambda: arm
+    app.connect(DIRECT)
+    app.driver.close()
+    assert app.link is arm and app.q_cmd == [5.0, 6.0, 7.0, 8.0, 0.0]
+
+
+def test_tick(app):
     app.tick()
-    assert "ปลายแขน" in app.read_text.get()
+    assert app.volt_text.get() == SIM
