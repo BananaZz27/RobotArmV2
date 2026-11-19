@@ -41,12 +41,12 @@ class Mover:
         return self.mode is not None
 
     # ---------- คำสั่ง ----------
-    def goto_q(self, q_goal):
-        """ไปมุมเป้าแบบ joint (คืน "" = รับคำสั่ง)"""
+    def goto_q(self, q_goal, v=None):
+        """ไปมุมเป้าแบบ joint (คืน "" = รับคำสั่ง) · v = ความเร็วสูงสุดเฉพาะครั้งนี้ (เช่นไปท่า Standby ช้า ๆ)"""
         goal = clamp_q(q_goal)
         start = list(self.q)
         dist = max(abs(g - s) for g, s in zip(goal, start))
-        self._set_path([start, goal], 1.875 * dist / self.v, goal)
+        self._set_path([start, goal], 1.875 * dist / (v or self.v), goal)
         return ""
 
     def goto_xyz(self, x, y, z, phi):

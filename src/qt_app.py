@@ -16,7 +16,7 @@ import serial
 from PyQt6.QtCore import QLocale, Qt, QTimer
 from PyQt6.QtGui import QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (QApplication, QCheckBox, QDoubleSpinBox, QFormLayout, QGridLayout, QGroupBox,
-                             QHBoxLayout, QLabel, QMainWindow, QPlainTextEdit, QPushButton, QSlider, QSplitter,
+                             QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QSlider, QSplitter,
                              QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 import config
@@ -25,6 +25,7 @@ from kinematics import check_limits, forward_kinematics, inverse_kinematics
 from link import DirectLink, SimLink
 from motion import Mover, clamp_q
 from singularity import analyze, report
+from servo_calibrate import save_standby
 
 USED = [i for i, j in enumerate(config.JOINTS) if j["used"]]
 SLIDER_SCALE = 10      # slider เป็น int → ×10 ให้ละเอียด 0.1°
@@ -45,9 +46,10 @@ def _set_quiet(widget, value):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, link=None, connect_fn=None, viewer=None):
+    def __init__(self, link=None, connect_fn=None, viewer=None, save_standby_fn=save_standby):
         super().__init__()
         self.connect_fn = connect_fn or (lambda: DirectLink(config.DIRECT_PORT))
+        self.save_standby = save_standby_fn          # test ส่งตัวปลอมมา ไม่เขียน config.py จริง
         self.link, self.driver = None, None
         self.q_target = [0.0] * 5
         self.torque_on = True
@@ -101,6 +103,10 @@ class MainWindow(QMainWindow):
         for w in (QLabel(f"Port {config.DIRECT_PORT}"), self.connect_btn, self.conn_label):
             bar.addWidget(w)
         bar.addStretch(1)
+        standby = QPushButton("⌂ Standby")
+        standby.setToolTip(f"ไปท่า Standby ช้า ๆ ({config.STANDBY_V:.0f} °/s) — ตั้งท่าได้ที่ปุ่ม 📌 ในแท็บ Joint")
+        standby.clicked.connect(self.go_standby)
+        bar.addWidget(standby)
         bar.addWidget(self.torque_btn)
         bar.addWidget(stop)
         return bar
@@ -127,7 +133,11 @@ class MainWindow(QMainWindow):
 
         zero = QPushButton("Zero (ท่าตั้งตรง)")
         zero.clicked.connect(lambda: (self.set_target([0.0] * 5), self.send()))
+        pin = QPushButton("📌 ตั้งท่านี้เป็น Standby")
+        pin.setToolTip("บันทึกท่า Target ตอนนี้ลง config.py — กด Connect ครั้งต่อไปแขนจะไปท่านี้เอง")
+        pin.clicked.connect(self.set_standby_here)
         bar = QHBoxLayout()
+        bar.addWidget(pin)
         bar.addStretch(1)
         bar.addWidget(zero)
         hint = QLabel("ลาก slider / พิมพ์ตัวเลข → แขนตามทันที · สีส้มใน 3D = Target, สีฟ้าโปร่ง = ท่าจริง\n"
@@ -273,7 +283,8 @@ class MainWindow(QMainWindow):
     # ================= ท่า Target =================
     def set_target(self, q):
         """ตั้งท่าที่จะสั่ง → อัปเดต slider/ช่องตัวเลข, FK, ภาพ 3D (ยังไม่ส่ง)"""
-        self.q_target = clamp_q([float(v) for v in q])
+        # ข้อที่อ่านไม่ได้ (nan — servo ไม่ตอบ) ใช้ค่าเดิม: เดิม slider รับ nan แล้วโปรแกรมพังตอน Connect
+        self.q_target = clamp_q([old if v is None or math.isnan(v) else float(v) for old, v in zip(self.q_target, q)])
         for i, (slider, spin, _a) in self.rows.items():
             _set_quiet(slider, int(round(self.q_target[i] * SLIDER_SCALE)))
             _set_quiet(spin, self.q_target[i])
@@ -412,6 +423,38 @@ class MainWindow(QMainWindow):
         self._use_link(link)
         self.set_target(link.q_actual)
         self.log(f"เชื่อมต่อ {config.DIRECT_PORT} แล้ว — แขนค้างที่เดิม, Target = ท่าจริง")
+        self.go_standby()                            # เปิดใช้งานทุกครั้ง → ไปท่า Standby เอง (ช้า ๆ, เช็คไฟ/servo ก่อน)
+
+    # ================= ท่า Standby =================
+    def go_standby(self):
+        """วิ่งไปท่า Standby ด้วย STANDBY_V (ช้า) — ไม่ไปถ้าไฟต่ำ / servo ตอบไม่ครบ / torque ปิด"""
+        q = config.STANDBY_Q
+        act = self.link.q_actual
+        if act is None or any(math.isnan(act[i]) for i in USED):
+            self.log("❌ ไม่ไปท่า Standby: servo ตอบไม่ครบทุกข้อ")
+            return False
+        if not self._ready(q):
+            return False
+        self.set_target(q)
+        self.driver.do(lambda m: m.goto_q(q, v=config.STANDBY_V))
+        self.log(f"⌂ กำลังไปท่า Standby ({config.STANDBY_V:.0f} °/s): "
+                 + "  ".join(f"{q[i]:.1f}" for i in USED) + " — กด STOP / Space เพื่อหยุด")
+        return True
+
+    def set_standby_here(self):
+        """บันทึกท่า Target ตอนนี้เป็นท่า Standby (เขียน config.py + ใช้ทันที)"""
+        q = list(self.q_target)
+        text = "  ".join(f"{config.JOINTS[i]['name']} {q[i]:.1f}°" for i in USED)
+        if QMessageBox.question(self, "ตั้งท่า Standby", f"{text}\n\nใช้ท่านี้เป็นท่า Standby?") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.save_standby(q)
+        except ValueError as e:
+            self.log(f"❌ ไม่บันทึกท่า Standby: {e}")
+            return
+        config.STANDBY_Q = [round(v, 1) for v in q]
+        self.log("📌 บันทึกท่า Standby แล้ว: " + text)
 
     def _label(self, text, color, tip=""):
         self.conn_label.setText(text)

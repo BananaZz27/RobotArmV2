@@ -104,6 +104,19 @@ def save_calibration(values, py_path=CONFIG_PY):
     Path(py_path).write_text(py, encoding="utf-8")
 
 
+def save_standby(q, py_path=CONFIG_PY):
+    """เขียนท่า Standby ลงบรรทัด STANDBY_Q ใน config.py (ข้อไหนเกิน limit / nan → ValueError ไม่เขียนอะไรเลย)"""
+    q = [round(float(v), 1) for v in q]
+    for i, (j, v) in enumerate(zip(config.JOINTS, q)):
+        if j["used"] and not config.Q_MIN[i] <= v <= config.Q_MAX[i]:      # nan ก็ไม่ผ่านเงื่อนไขนี้
+            raise ValueError(f"{j['name']} = {v}° นอกช่วง {config.Q_MIN[i]:.1f}…{config.Q_MAX[i]:.1f}°")
+    text = Path(py_path).read_text(encoding="utf-8")
+    text, n = re.subn(r"^STANDBY_Q = \[[^\]]*\]", f"STANDBY_Q = {q}", text, flags=re.M)
+    if n != 1:
+        raise ValueError("หาบรรทัด STANDBY_Q ใน config.py ไม่เจอ")
+    Path(py_path).write_text(text, encoding="utf-8")
+
+
 def main():
     if len(sys.argv) < 2:
         sys.exit(__doc__ or "ใช้: servo_calibrate.py read | free j2 | hold j2 | sweep j2 [วินาที]")
