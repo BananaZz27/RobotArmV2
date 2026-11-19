@@ -188,10 +188,11 @@ class Mover:
             self._vc, self.mode = 0.0, None
             self._finished = list(self.q)                      # ให้ driver ชดเชยแขนยวบที่ท่าที่หยุด
             return
-        for _ in range(2):                                     # ข้อต้องหมุนเร็วเกิน v → ลดความเร็วปลายแขนแล้วคิดใหม่
+        step = self._vc * dt
+        for _ in range(12):                                    # ข้อต้องหมุนเร็วเกิน jog v → ย่อก้าวลงแล้วคิดใหม่
             tip = self._tip.copy()
-            tip[axis] += self._vc * dt
-            ik = inverse_kinematics(*tip, self._phi, self.q[2] >= 0, theta1_prev=self.q[0])
+            tip[axis] += step
+            ik, phi = self._ik_keep_position(tip)
             if not ik.ok:
                 # ขอบพื้นที่เอื้อมถึง = แขนเหยียดสุด (θ3 = 0) = singularity — ก้าวเดียวข้ามโซนเตือนได้ตอนเร็ว
                 edge = "เอื้อมไม่ถึง" in ik.reason
@@ -200,19 +201,40 @@ class Mover:
                 self.stop()
                 return
             q = clamp_q(ik.q)
-            ratio = max(abs(b - a) for a, b in zip(self.q, q)) / (self.v * dt)
+            ratio = max(abs(b - a) for a, b in zip(self.q, q)) / (v * dt)
             if ratio <= 1.0:
                 break
-            self._vc /= ratio * 1.01
-        else:
-            q = self.q                                         # ยังเร็วเกิน → ก้าวนี้ไม่ขยับ
+            step /= max(ratio, 2.0)                            # ใกล้ singularity ข้อหมุน ∝ √ระยะ → ย่อแรง ๆ
+        else:                                                  # ย่อ 12 ครั้งแล้วยังต้องหมุนเร็วเกิน → ไปทางนี้ต่อไม่ได้
+            self.message = "หยุด: ใกล้ singularity — แขนเหยียดสุด ไปทิศนี้ต่อไม่ได้ (ลองทิศอื่น)"
+            self.stop()
+            return
+        self._vc = step / dt
         worse = getting_worse(self.q, q)                       # กำลังเข้าใกล้ singularity (ถอยออกได้)
         if worse:
             self.message = "หยุด: ใกล้ singularity — " + worse
             self.stop()
             return
         if q is not self.q:
-            self._tip, self.q = tip, q
+            self._tip, self.q, self._phi = tip, q, phi
+
+    def _ik_keep_position(self, tip):
+        """IK ที่ตำแหน่ง tip: ใช้ φ เดิมก่อน ไม่ได้ → φ ที่ใกล้ที่สุดภายใน ±30° (ตำแหน่งสำคัญกว่ามุม —
+        แขนเหยียดตรงแล้วกด Z− ต้องลงได้ด้วยการเปลี่ยน φ) · เลือกคำตอบ elbow ที่ใกล้ท่าตอนนี้ที่สุด"""
+        first = None
+        for dphi in [0] + [s * k for k in range(1, 31) for s in (1, -1)]:
+            phi = self._phi + dphi
+            best = None
+            for up in (True, False):
+                ik = inverse_kinematics(*tip, phi, up, theta1_prev=self.q[0])
+                first = first or ik
+                if ik.ok:
+                    gap = max(abs(a - b) for a, b in zip(ik.q, self.q))
+                    if best is None or gap < best[0]:
+                        best = (gap, ik)
+            if best:
+                return best[1], phi
+        return first, self._phi
 
     def _step_follow(self, dt):
         done = True

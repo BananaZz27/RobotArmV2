@@ -69,9 +69,9 @@ def getting_worse(q_old, q_new):
     """เตือนเมื่อ q_new อยู่ในโซนเตือน และเข้าใกล้ singularity แบบนั้นมากกว่า q_old ("" = ไม่เป็นไร, ถอยออกได้)"""
     a, b = analyze(q_old), analyze(q_new)
     for w in b["warnings"]:
-        if "แกนฐาน" in w and b["r"] < a["r"]:
+        if "แกนฐาน" in w and b["r"] < a["r"] - 1e-6:            # เท่าเดิม (เช่น ลงตามแกนฐาน) ไม่นับว่าแย่ลง
             return w
-        if "เหยียด" in w and abs(math.sin(math.radians(b["theta3"]))) < abs(math.sin(math.radians(a["theta3"]))):
+        if "เหยียด" in w and abs(math.sin(math.radians(b["theta3"]))) < abs(math.sin(math.radians(a["theta3"]))) - 1e-9:
             return w
     return ""
 

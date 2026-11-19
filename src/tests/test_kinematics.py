@@ -107,3 +107,15 @@ def test_ik_singular_above_base_keeps_theta1():
     ik = inverse_kinematics(0, 0, 382.0, 90, theta1_prev=25)  # เหยียดตรงพอดี D = 1
     assert ik.ok and ik.q[0] == pytest.approx(25) and not any(np.isnan(ik.q))
     assert ik.q[1:4] == pytest.approx([0, 0, 0], abs=1e-3)
+
+
+@pytest.mark.parametrize("q0", [[0, -0.5, 0.7, 0.5, 0], [-0.5, -1, 0, 0, 0], [10, -3, 2, 1, 0]])
+def test_ik_tip_just_behind_axis_no_base_flip(q0):
+    """ปลายแขนเลยหลังแกนฐานนิดเดียว (ท่าเกือบตั้งตรงของแขนจริง) → IK ต้องไม่หมุนฐาน 180° (เดิม: ฐานเกิน limit 180°)"""
+    f = forward_kinematics(q0)
+    assert f.x < 0 or q0[0]
+    ik = inverse_kinematics(f.x, f.y, f.z, f.phi, q0[2] >= 0, theta1_prev=q0[0])
+    assert ik.ok, ik.reason
+    assert abs(ik.q[0] - q0[0]) < 1e-6
+    g = forward_kinematics(ik.q)
+    assert (g.x, g.y, g.z) == pytest.approx((f.x, f.y, f.z), abs=1e-6)

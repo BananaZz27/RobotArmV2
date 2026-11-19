@@ -7,6 +7,8 @@ import numpy as np
 
 from config import A2, A3, D1, D5, JOINTS, Q_MAX, Q_MIN
 
+NEAR_AXIS_MM = 30.0   # ปลายแขนใกล้แกนฐานกว่านี้ → ยอมใช้คำตอบ θ₁ + 180° (เอนหลัง) ถ้าใกล้มุมฐานเดิมกว่า
+
 # ---------- ตาราง DH (สไลด์ FK: ตาราง Link | aᵢ | αᵢ | dᵢ | θᵢ) ----------
 #            (a,  alpha, d)
 DH_TABLE = [
@@ -107,12 +109,16 @@ def inverse_kinematics(x, y, z, phi=-90.0, elbow_up=True, roll=0.0, theta1_prev=
 
     # θ₁: สไลด์เขียน θ₁ = Atan2(xc, yc) แบบ Spong (อาร์กิวเมนต์ = cos, sin)
     #     = np.arctan2(yc, xc) ของ numpy · wrist center อยู่ในระนาบเดียวกับปลายหัว จึงใช้ x, y ได้เลย
+    r = np.sqrt(x * x + y * y)               # สไลด์: r² = xc² + yc² (ระยะแนวนอนจากแกนฐาน)
     if x * x + y * y < 1e-9:
         theta1 = theta1_prev      # สไลด์: singular configuration — θ₁ เป็นค่าใดก็ได้ จึงใช้ค่าเดิม
     else:
         theta1 = np.degrees(np.arctan2(y, x))
-
-    r = np.sqrt(x * x + y * y)               # สไลด์: r² = xc² + yc² (ระยะแนวนอนจากแกนฐาน)
+        # ใกล้แกนฐาน: ปลายแขนเลยหลังแกนไปนิดเดียว atan2 กระโดดเป็น ~180° (ฐานเกิน limit — เจอจริงตอน jog Z− จากท่าตั้งตรง)
+        # → ใช้คำตอบที่สองของสไลด์ θ₁ + 180° กับ r ติดลบ (เอนไปข้างหลังแทนหมุนฐาน) ถ้าใกล้มุมฐานเดิมกว่า
+        flipped = wrap180(theta1 + 180.0)
+        if r < NEAR_AXIS_MM and abs(wrap180(flipped - theta1_prev)) < abs(wrap180(theta1 - theta1_prev)):
+            theta1, r = flipped, -r
     # kinematic decoupling (สไลด์: oc = o − d·R·k): ถอยจากปลายหัวกลับไปที่ข้อมือ ระยะ d5 ตามทิศหัว φ
     rc = r - D5 * np.cos(phi_r)              # ระยะแนวนอนของข้อมือ
     s = z - D5 * np.sin(phi_r) - D1          # สไลด์: s = zc − d1 (ความสูงข้อมือเหนือไหล่)

@@ -192,7 +192,7 @@ def test_jog_xyz_can_leave_singularity():
     m = Mover(q0, v=150, a=600, v_cart=50)
     p0 = _tip(q0)
     m.jog_xyz(0, -1)                          # ดึงเข้า = ออกจาก singularity → ต้องไปได้
-    _run(m, 0.5, v_check=150)
+    _run(m, 1.5, v_check=150)                 # ใกล้ singularity ย่อก้าวให้ข้อไม่เกิน jog v → ออกตัวช้า
     assert _tip(m.q)[0] < p0[0] - 5
 
 
@@ -208,3 +208,24 @@ def test_jog_arrives_at_limit_slowly():
             break
         last_v, prev = (q - prev) / DT, q
     assert last_v is not None and last_v <= 6.0
+
+
+def _z(q):
+    return forward_kinematics(q).z
+
+
+@pytest.mark.parametrize("q0", [[0, 0, 0, 0, 0], [0, -0.5, 0.7, 0.5, 0], [0, 45, 0, 0, 0], [30, 40, 0, 0, 0]])
+def test_jog_minus_z_from_stretched_moves_down(q0):
+    """แขนเหยียดตรง (ชี้ฟ้า / เหยียดไปหน้า) แล้วกด Z− ต้องลงได้ — ยอมให้ φ เปลี่ยน, ไม่พุ่งเกิน jog v"""
+    m = Mover(q0)
+    m.jog_xyz(2, -1)
+    traj = _run(m, 2.0, v_check=config.JOG_V)
+    assert _z(traj[-1]) < _z(q0) - 5, (m.message, traj[-1])
+
+
+def test_jog_minus_z_at_horizontal_full_stretch_says_why():
+    """เหยียดสุดแนวนอน: ลงตรง ๆ (x เท่าเดิม) ต้องยาวขึ้น = ขอบพื้นที่เอื้อมถึงจริง → หยุดพร้อมบอกเหตุผล"""
+    m = Mover([0, 90, 0, 0, 0])
+    m.jog_xyz(2, -1)
+    _run(m, 1.0, v_check=config.JOG_V)
+    assert not m.busy and "เหยียดสุด" in m.message
