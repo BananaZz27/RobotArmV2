@@ -400,6 +400,14 @@ class MainWindow(QMainWindow):
         self.connect_btn.setText("Connect" if link.simulated else "Disconnect")
         self._label("● Simulation" if link.simulated else "● Connected", "#888" if link.simulated else "#2a9d8f")
 
+    def startup(self):
+        """เปิดโปรแกรม: ต่อแขนเอง → ไปท่า Standby (ต่อไม่ได้ → แขนจำลองไปท่า Standby แทน)"""
+        self.log(f"เปิดโปรแกรม: กำลังต่อแขนผ่าน {config.DIRECT_PORT} แล้วไปท่า Standby ...")
+        self.toggle_connect()                        # ต่อได้ → go_standby() ถูกเรียกในนั้นแล้ว
+        if self.link.simulated:
+            self.log("ต่อแขนไม่ได้ → แสดงแขนจำลองที่ท่า Standby แทน (กด Connect เพื่อลองใหม่)")
+            self.go_standby()
+
     def toggle_connect(self):
         if not self.link.simulated:
             self._use_link(SimLink())
@@ -517,6 +525,7 @@ def main():
     app = QApplication(sys.argv)
     w = MainWindow()
     w.show()
+    QTimer.singleShot(300, w.startup)                # รอหน้าต่างขึ้นก่อน (เห็นปุ่ม STOP) แล้วค่อยต่อแขน + ไปท่า Standby
     sys.exit(app.exec())
 
 
