@@ -194,3 +194,17 @@ def test_jog_xyz_can_leave_singularity():
     m.jog_xyz(0, -1)                          # ดึงเข้า = ออกจาก singularity → ต้องไปได้
     _run(m, 0.5, v_check=150)
     assert _tip(m.q)[0] < p0[0] - 5
+
+
+def test_jog_arrives_at_limit_slowly():
+    """ชน limit ต้องช้า (เดิมชนที่ ~14 °/s) — ก้าวสุดท้ายก่อนถึง limit ≤ 6 °/s (ก้าว 40 ms ทำให้เหลือ ~5.6)"""
+    lim = config.Q_MAX[2]
+    m = Mover([0, 0, lim - 12, 0, 0])
+    m.jog_joint(2, +1)
+    prev, last_v = m.q[2], None
+    for _ in range(int(3 / DT)):
+        q = m.step(DT)[2]
+        if q >= lim - 1e-9:
+            break
+        last_v, prev = (q - prev) / DT, q
+    assert last_v is not None and last_v <= 6.0

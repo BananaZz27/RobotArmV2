@@ -22,6 +22,8 @@ Forward Kinematics (ท่า Target): X Y Z φ Yaw + T⁰₅            Log
 - **STOP / Space:** แขนค้างที่ตำแหน่งจริงทันที · **Torque OFF:** แขนหมดแรง จับขยับด้วยมือได้ (Target ตามแขนจริง)
 - ไฟ < 6 V / servo ไม่ตอบ → ไม่ส่ง/หยุดเอง · **คาลิเบรต:** `Calibrate.bat` → `src/config.py`
 
+อธิบายการคำนวณพร้อมรูป (FK, IK, min-jerk, jog, ส่งล่วงหน้า, ชดเชย, singularity): **`docs/explain.md`**
+
 โค้ด: `qt_app.py` (หน้าต่าง) · `viewer3d.py` (3D) · `motion.py` (ตัวป้อนท่า) → `driver.py` (40 ms) → `link.py` (adapter / จำลอง)
 
 ติดตั้ง: `py -3.11 -m venv .venv && .venv\Scripts\python.exe -m pip install -r requirements.txt`

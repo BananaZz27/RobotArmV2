@@ -166,7 +166,8 @@ class Mover:
         v, a, _ = self._jog_speed()
         lo, hi = config.Q_MIN[i], config.Q_MAX[i]
         room = (hi - self.q[i]) if self.vel[i] >= 0 else (self.q[i] - lo)
-        brake = math.sqrt(2 * a * max(room, 0.0))        # ความเร็วที่ยังเบรกทันก่อนชน limit
+        # เพดานเบรก v ≤ √(a·ระยะ) = เบรกด้วยครึ่งของ a — ถ้าใช้ a เต็ม (√(2a·ระยะ)) ตัวผ่อนตามไม่ทัน ชน limit ที่ ~14 °/s
+        brake = math.sqrt(a * max(room, 0.0))
         v_target = d * min(v, brake)
         self.vel[i] = self._ramp(self.vel[i], v_target, dt, a)
         self.q[i] = min(max(self.q[i] + self.vel[i] * dt, lo), hi)
