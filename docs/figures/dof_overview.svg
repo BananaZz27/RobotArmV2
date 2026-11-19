@@ -45,5 +45,5 @@ text{font-family:'Sarabun','Noto Sans Thai','Leelawadee UI','Tahoma',sans-serif}
 <text class="ts" x="112" y="484">pitch: แกนหมุนพุ่งออกจากจอ</text>
 <ellipse class="c-teal" cx="330" cy="480" rx="9" ry="5" stroke-width="1"/>
 <text class="ts" x="346" y="484">yaw / roll: หมุนรอบแกนของท่อน</text>
-<text class="ts" x="100" y="508">ท่าในรูป q = (0°, 25°, 45°, 30°, 0°) · q = 0 ทุกข้อ (raw 511) = ตั้งตรงชี้ฟ้า</text>
+<text class="ts" x="100" y="508">ท่าในรูป q = (0°, 25°, 45°, 30°, 0°) · q = 0 ทุกข้อ (raw = center ของข้อนั้น) = ตั้งตรงชี้ฟ้า</text>
 </svg>
