@@ -131,3 +131,30 @@ def test_simulated_link_needs_no_volt():
     d.do(lambda m: m.goto_q([0, 3, 0, 0, 0]))
     _drive(d, 2.0)
     assert d.link.q_actual[1] == pytest.approx(3)
+
+
+def test_peek_does_not_change_mover():
+    m = Mover([0] * 5, v=30, a=90)
+    m.jog_joint(2, +1)
+    for _ in range(20):
+        m.step(DT)
+    q, vel = list(m.q), list(m.vel)
+    ahead = m.peek(0.08)
+    assert ahead[2] > q[2] and m.q == q and m.vel == vel
+
+
+def test_servo_speed_steady_despite_tick_jitter():
+    """รอบแกว่ง 27–52 ms (วัดจริง) → ความเร็วที่ servo ต้องวิ่ง = (เป้าที่ส่ง − ท่าตอนนี้) / STREAM_MS ต้องคงที่"""
+    import random
+    rnd = random.Random(0)
+    arm = FakeArm()
+    d = Driver(arm, Mover([0] * 5, v=30, a=90))
+    d.correct = False
+    d.do(lambda m: m.jog_joint(2, +1))
+    t, speeds = 0.0, []
+    for k in range(60):
+        t += rnd.uniform(0.027, 0.052)
+        d.tick(now=t)
+        if k > 15:                                   # ช่วงวิ่งความเร็วคงที่ (เร่งเสร็จแล้ว)
+            speeds.append((arm.sent[-1][0][2] - d.mover.q[2]) / (config.STREAM_MS / 1000))
+    assert min(speeds) == pytest.approx(30, rel=0.02) and max(speeds) == pytest.approx(30, rel=0.02)

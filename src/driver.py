@@ -1,4 +1,4 @@
-# ตัวขับ: ทุก PERIOD_S เดิน Mover หนึ่งก้าวแล้วส่งท่าให้แขน (เวลา STREAM_MS ให้ servo เกลี่ยต่อเนื่อง)
+# ตัวขับ: ทุก PERIOD_S เดิน Mover หนึ่งก้าว แล้วส่งท่าล่วงหน้า STREAM_MS ให้แขน (servo วิ่งความเร็วสม่ำเสมอ)
 #   ไฟ < 6 V / ออฟไลน์ / แขนไม่รับคำสั่ง → หยุด + ค้างที่มุมจริง
 #   ชดเชย: goto จบแล้วรอนิ่ง → ข้อที่ error > 0.5° สั่งเพิ่ม 0.8 × error แบบนุ่ม ≤ 3 รอบ, รวม ≤ ±5°
 # GUI เรียกคำสั่งผ่าน do(lambda m: m.goto_q(...)) เพื่อไม่ชนกับ thread (มี lock)
@@ -81,7 +81,10 @@ class Driver:
                 if why:
                     self._halt("หยุด: " + why)
                     return
-                q = self.mover.step(dt)
+                self.mover.step(dt)
+                # ส่ง "ท่าในอีก STREAM_MS ข้างหน้า" + เวลา STREAM_MS → servo วิ่งความเร็วเท่ากับที่ตั้งเสมอ
+                # (รอบของ Windows แกว่ง 27–52 ms: ถ้าส่งท่าปัจจุบันด้วยเวลาคงที่ ความเร็ว servo แกว่ง ±30% = กระตุก)
+                q = self.mover.peek(config.STREAM_MS / 1000)
                 if not self.link.send_q(q, config.STREAM_MS):
                     self._halt("หยุด: " + (self.link.message or "แขนไม่รับคำสั่ง"))
                     return

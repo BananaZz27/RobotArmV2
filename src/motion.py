@@ -3,6 +3,7 @@
 #   goto_xyz ปลายแขนวิ่งเส้นตรงไปจุด (IK ทุก ~1 mm)
 #   jog_*    กดค้าง = เร่งขึ้นถึงความเร็วที่ตั้ง · release() = ผ่อนจนหยุด
 #   follow   ไล่ตามเป้าที่เปลี่ยนได้ตลอด (slider) ด้วยความเร็ว/ความเร่งจำกัด
+import copy
 import math
 
 import numpy as np
@@ -117,6 +118,12 @@ class Mover:
         return done
 
     # ---------- เดินหนึ่งก้าว ----------
+    def peek(self, dt):
+        """ท่าในอีก dt วินาทีข้างหน้า โดยไม่เปลี่ยนสถานะจริง (คัดลอกตื้น + list ที่ step แก้)"""
+        ghost = copy.copy(self)
+        ghost.q, ghost.vel = list(self.q), list(self.vel)
+        return ghost.step(dt)
+
     def step(self, dt):
         if dt <= 0:                                  # เวลาไม่เดิน → ไม่ขยับ (กันหารศูนย์)
             return list(self.q)
