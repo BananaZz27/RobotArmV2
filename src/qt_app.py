@@ -123,21 +123,13 @@ class MainWindow(QMainWindow):
             self.rows[i] = (slider, spin, actual)
         grid.setColumnStretch(1, 1)
 
-        self.live = QCheckBox("Live (แขนตามทันทีที่ลาก)")
-        self.speed = _spin(1, config.V_MAX_LIMIT, 1, " °/s", config.V_JOINT, 0)
-        self.speed.valueChanged.connect(self.on_speed)
         zero = QPushButton("Zero (ท่าตั้งตรง)")
-        zero.clicked.connect(lambda: self.set_target([0.0] * 5))
-        send = QPushButton("▶ Send")
-        send.clicked.connect(self.send)
+        zero.clicked.connect(lambda: (self.set_target([0.0] * 5), self.send()))
         bar = QHBoxLayout()
-        for w in (self.live,):
-            bar.addWidget(w)
         bar.addStretch(1)
-        for w in (QLabel("Speed"), self.speed, zero, send):
-            bar.addWidget(w)
-        hint = QLabel("สีส้มใน 3D = Target ที่จะสั่ง, สีฟ้าโปร่ง = ท่าจริง  (ปิด Live: ปรับให้พอใจก่อนแล้วกด Send)\n"
-                      "แขนวิ่งนุ่ม: ออกตัวช้า ผ่อนก่อนถึง ทุกข้อถึงพร้อมกัน · J5 หัวถอดแล้ว")
+        bar.addWidget(zero)
+        hint = QLabel("ลาก slider / พิมพ์ตัวเลข → แขนตามทันที · สีส้มใน 3D = Target, สีฟ้าโปร่ง = ท่าจริง\n"
+                      "J5 หัวถอดแล้ว")
         hint.setStyleSheet("color:#666")
         w = QWidget()
         lay = QVBoxLayout(w)
@@ -250,7 +242,7 @@ class MainWindow(QMainWindow):
         q = list(self.q_target)
         q[i] = deg
         self.set_target(q)
-        if self.live.isChecked() and self._ready():
+        if self._ready():                              # slider ขับแขนทันที (ไม่ต้องกด Send)
             target = list(self.q_target)
             self.driver.do(lambda m: m.follow(target))
 
@@ -273,11 +265,6 @@ class MainWindow(QMainWindow):
             target = list(self.q_target)
             self.driver.do(lambda m: m.goto_q(target))
             self.log("▶ Send: " + "  ".join(f"{target[i]:.1f}" for i in USED))
-
-    def on_speed(self, v):
-        def apply(m):
-            m.v, m.v_cart = v, 2 * v
-        self.driver.do(apply)
 
     def stop(self):
         self.driver.emergency_stop()
@@ -327,8 +314,7 @@ class MainWindow(QMainWindow):
             self.link.close()
         self.link = link
         q0 = link.q_actual if link.q_actual is not None else [0.0] * 5
-        v = self.speed.value()
-        self.driver = Driver(link, Mover(q0, v=v, v_cart=2 * v))
+        self.driver = Driver(link, Mover(q0))
         self.driver.correct = self.correct_box.isChecked()
         self.driver.start()
         self.torque_on = True

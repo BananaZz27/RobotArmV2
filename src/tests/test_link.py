@@ -45,7 +45,7 @@ def test_stream_small_step_sent_with_short_time(fake, link):
 
 def test_stream_big_jump_refused(fake, link):
     before = dict(fake.goals)
-    assert link.send_q([0, 10, 0, 0, 0], config.STREAM_MS) is False
+    assert link.send_q([0, 30, 0, 0, 0], config.STREAM_MS) is False
     assert fake.goals == before and "กระโดด" in link.message
 
 
@@ -78,8 +78,8 @@ def test_offline_when_silent(fake, link):
 
 
 def test_jump_guard():
-    assert jump_too_big([0] * 5, [0, 5, 0, 0, 0], 60)
-    assert not jump_too_big([0] * 5, [0, 2, 0, 0, 0], 60)
+    assert jump_too_big([0] * 5, [0, 25, 0, 0, 0], 60)
+    assert not jump_too_big([0] * 5, [0, 10, 0, 0, 0], 60)
     assert not jump_too_big([0] * 5, [0, 50, 0, 0, 0], 2000)
     assert not jump_too_big([0] * 5, [0, 0, 0, 0, 90], 60)          # J5 ไม่ได้ต่อ ไม่นับ
 

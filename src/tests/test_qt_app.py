@@ -50,27 +50,28 @@ def test_starts_in_simulation(win):
     assert win.link.simulated and "Simulation" in win.conn_label.text()
 
 
-def test_slider_sets_target_without_sending(win):
-    win.rows[1][0].setValue(100)           # slider ×10 → 10°
-    assert win.q_target[1] == 10 and win.viewer.target[1] == 10
-    assert win.rows[1][1].value() == 10    # ช่องตัวเลขตาม
+def test_slider_drives_arm(win):
+    win.rows[1][0].setValue(300)           # slider ×10 → 30°
+    assert win.q_target[1] == 30 and win.viewer.target[1] == 30
+    assert win.rows[1][1].value() == 30    # ช่องตัวเลขตาม
+    _run(win, 0.1)
+    assert 0 < win.link.q_actual[1] < 30   # เร่งออกตัว ไม่กระโดด
     _run(win, 1.0)
-    assert win.link.q_actual[1] == 0       # ยังไม่ Send
+    assert win.link.q_actual[1] == pytest.approx(30)
 
 
 def test_send_moves_smoothly(win):
-    win.set_target([0, 10, 0, 0, 0])
+    win.set_target([0, 60, 0, 0, 0])
     win.send()
     _run(win, 0.2)
-    assert 0 < win.link.q_actual[1] < 10
-    _run(win, 3.0)
-    assert win.link.q_actual[1] == pytest.approx(10)
+    assert 0 < win.link.q_actual[1] < 60
+    _run(win, 2.0)
+    assert win.link.q_actual[1] == pytest.approx(60)
 
 
-def test_live_follows(win):
-    win.live.setChecked(True)
+def test_spin_drives_arm(win):
     win.rows[2][1].setValue(6)
-    _run(win, 3.0)
+    _run(win, 1.0)
     assert win.link.q_actual[2] == pytest.approx(6)
 
 
@@ -82,7 +83,7 @@ def test_fk_display(win):
 def test_ik_preview_and_go(win):
     win.ik_solve(send=False)
     assert "★" in win.ik_result.toPlainText() and win.viewer.marker == (110, 10, 350)
-    _run(win, 1.0)
+    _run(win, 0.5)
     assert win.link.q_actual[2] == 0
     win.ik_solve(send=True)
     _run(win, 6.0)
@@ -143,6 +144,5 @@ def test_connect_success_target_is_actual(win):
     assert "7.6" in win.conn_label.text()
 
 
-def test_speed(win):
-    win.speed.setValue(5)
-    assert win.driver.mover.v == 5
+def test_no_speed_cap_default_fast(win):
+    assert win.driver.mover.v >= 100

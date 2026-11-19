@@ -13,7 +13,7 @@ Forward Kinematics (ท่า Target): X Y Z φ Yaw + T⁰₅            Log
 ```
 
 - **เปิด:** `RobotArm.bat` → โหมด Simulation → **Connect** (แขนค้างที่เดิม, Target = ท่าจริง)
-- **Joint:** slider / ช่องตัวเลข = Target → **▶ Send** (หรือติ๊ก Live ให้แขนตามทันที) · Speed °/s · Zero
+- **Joint:** ลาก slider / พิมพ์ตัวเลข → แขนตามทันที (ไม่มีลิมิตความเร็วให้ตั้ง — วิ่งเต็มกำลัง servo มีช่วงเร่ง/ผ่อนสั้น ๆ) · Zero = กลับท่าตั้งตรง
 - **Inverse Kinematics:** X Y Z φ → Preview (ดูคำตอบ elbow up/down) / Go
 - **Status:** ต่อข้อ: online, raw, มุมจริง, error, อุณหภูมิ, โหลด · ไฟเลี้ยง · ติ๊กชดเชยแขนยวบ
 - **STOP / Space:** แขนค้างที่ตำแหน่งจริงทันที · **Torque OFF:** แขนหมดแรง จับขยับด้วยมือได้ (Target ตามแขนจริง)
