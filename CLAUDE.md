@@ -13,3 +13,4 @@
 - `qt_app.py` (PyQt6 แบบ ws-control) + `viewer3d.py` (PyVista) → `motion.py` (Mover ไม่แตะฮาร์ดแวร์) → `driver.py` (thread 40 ms) → `link.py` (DirectLink / SimLink)
 - Windows Region เป็นไทย → `qt_app.main()` บังคับ QLocale en-US ไม่งั้นช่องตัวเลขเป็นเลขไทย
 - test: `cd src && ../.venv/Scripts/python.exe -m pytest -q`
+- Windows: รอบ thread 40 ms แกว่งจริง 27–52 ms → driver ส่ง "ท่าล่วงหน้า STREAM_MS (80 ms) + เวลา 80 ms" (`Mover.peek`) ไม่งั้น jog กระตุก (วัดแขนจริง 2026-11-19: ความเร็วศอกแกว่ง ±10.8 → ±5.8 °/s, ตามหลัง 4.4° → 2.5°)
