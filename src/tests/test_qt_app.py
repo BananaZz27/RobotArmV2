@@ -178,3 +178,18 @@ def test_singularity_label_warns(win):
 def test_ik_shows_proof(win):
     win.ik_solve(send=False)
     assert "det J" in win.ik_result.toPlainText()
+
+
+def test_ik_falls_back_to_nearest_phi(win):
+    from kinematics import forward_kinematics, inverse_kinematics
+    f = forward_kinematics([0, 30, 60, 20, 0])
+    assert not inverse_kinematics(f.x, f.y, f.z, -90).ok          # φ −90 ไปไม่ได้ที่จุดนี้
+    win.ik_x.setValue(f.x)
+    win.ik_y.setValue(f.y)
+    win.ik_z.setValue(f.z)
+    win.ik_phi.setValue(-90)
+    win.ik_solve(send=True)
+    _run(win, 3.0)
+    tip = forward_kinematics(win.link.q_actual)
+    assert "ใช้ φ" in win.ik_result.toPlainText()
+    assert abs(tip.x - f.x) < 0.5 and abs(tip.z - f.z) < 0.5

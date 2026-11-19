@@ -145,18 +145,23 @@ class Mover:
             self._finished = list(self._goal)
             self.mode = None
 
-    def _ramp(self, vel, v_target, dt):
+    def _ramp(self, vel, v_target, dt, a=None):
         """เปลี่ยนความเร็วเข้าหาเป้าไม่เกิน a·dt ต่อก้าว"""
-        dv = self.a * dt
+        dv = (a or self.a) * dt
         return vel + max(-dv, min(dv, v_target - vel))
+
+    def _jog_speed(self):
+        """jog ช้ากว่า slider: ความเร็วเต็ม 150 °/s + เร่ง 0.25 s ทำให้แขนพุ่ง/กระตุกตอนกด"""
+        return min(self.v, config.JOG_V), min(self.a, config.JOG_A), min(self.v_cart, config.JOG_V_CART)
 
     def _step_jog_joint(self, dt):
         i, d = self._jog
+        v, a, _ = self._jog_speed()
         lo, hi = config.Q_MIN[i], config.Q_MAX[i]
         room = (hi - self.q[i]) if self.vel[i] >= 0 else (self.q[i] - lo)
-        brake = math.sqrt(2 * self.a * max(room, 0.0))   # ความเร็วที่ยังเบรกทันก่อนชน limit
-        v_target = d * min(self.v, brake)
-        self.vel[i] = self._ramp(self.vel[i], v_target, dt)
+        brake = math.sqrt(2 * a * max(room, 0.0))        # ความเร็วที่ยังเบรกทันก่อนชน limit
+        v_target = d * min(v, brake)
+        self.vel[i] = self._ramp(self.vel[i], v_target, dt, a)
         self.q[i] = min(max(self.q[i] + self.vel[i] * dt, lo), hi)
         if self.q[i] in (lo, hi):
             self.vel[i] = 0.0
@@ -167,9 +172,9 @@ class Mover:
 
     def _step_jog_xyz(self, dt):
         axis, d = self._jog
-        a_cart = self.a / self.v * self.v_cart                 # เร่งถึงความเร็วเต็มในเวลาเท่ากับแบบข้อต่อ
-        dv = a_cart * dt
-        self._vc += max(-dv, min(dv, d * self.v_cart - self._vc))
+        v, a, v_cart = self._jog_speed()
+        dv = a / v * v_cart * dt                               # เร่งถึงความเร็วเต็มในเวลาเท่ากับแบบข้อต่อ
+        self._vc += max(-dv, min(dv, d * v_cart - self._vc))
         if d == 0 and abs(self._vc) < 1e-9:
             self._vc, self.mode = 0.0, None
             return

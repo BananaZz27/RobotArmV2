@@ -353,6 +353,17 @@ class MainWindow(QMainWindow):
             else:
                 lines.append(f"✗ {name:<10} {ik.reason}")
         head = "✅ ได้คำตอบ (★ = ที่ใช้)" if best else "❌ ไปจุดนี้ไม่ได้"
+        if best is None:                     # ตำแหน่งอาจไปได้ แต่ไม่ใช่ด้วย φ นี้ → หา φ ที่ใกล้ที่สุดที่ไปได้
+            for p in sorted(range(-180, 181), key=lambda p: abs(p - phi)):
+                ik = inverse_kinematics(x, y, z, p, True, theta1_prev=self.q_target[0])
+                if not ik.ok:
+                    ik = inverse_kinematics(x, y, z, p, False, theta1_prev=self.q_target[0])
+                if ik.ok:
+                    best = ik.q
+                    head = f"⚠ φ = {phi:.0f}° ไปไม่ได้ → ใช้ φ = {p}° แทน (ใกล้ที่สุดที่ไปถึง)"
+                    lines.append(f"★ φ {p:<8} [" + "  ".join(f"{ik.q[i]:7.1f}" for i in USED) + "]")
+                    self.log(head)
+                    break
         proof = "\n\n" + report(best) if best else ""
         self.ik_result.setPlainText(head + "\n\n" + "\n".join(lines) + proof)
         if best:
