@@ -108,7 +108,7 @@ def test_jog_joint_ramps_up_and_down():
     m.release()
     after = _run(m, 1.0)
     moved = after[-1][1] - traj[-1][1]
-    assert 0 < moved <= 10 ** 2 / (2 * 30) + 0.5 and not m.busy        # ผ่อนจนหยุด ระยะเบรกพอดี
+    assert 0 < moved <= 10 ** 2 / (2 * 30 * config.JOG_STOP) + 0.5 and not m.busy   # ผ่อน (0.5·a) จนหยุด
 
 
 def test_jog_stops_at_limit():

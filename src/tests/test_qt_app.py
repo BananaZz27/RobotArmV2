@@ -154,7 +154,7 @@ def test_jog_joint_hold_and_release(win):
     win.poll()
     assert win.driver.mover.q[1] > 5 and win.q_target[1] == pytest.approx(win.driver.mover.q[1])
     win.jog_buttons[(1, +1)].released.emit()
-    _run(win, 0.5)
+    _run(win, 1.0)                         # ผ่อนด้วย 0.5·a ใช้เวลา ~0.7 s
     assert not win.driver.mover.busy
 
 

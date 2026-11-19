@@ -169,7 +169,7 @@ class Mover:
         # เพดานเบรก v ≤ √(a·ระยะ) = เบรกด้วยครึ่งของ a — ถ้าใช้ a เต็ม (√(2a·ระยะ)) ตัวผ่อนตามไม่ทัน ชน limit ที่ ~14 °/s
         brake = math.sqrt(a * max(room, 0.0))
         v_target = d * min(v, brake)
-        self.vel[i] = self._ramp(self.vel[i], v_target, dt, a)
+        self.vel[i] = self._ramp(self.vel[i], v_target, dt, a if d else a * config.JOG_STOP)
         self.q[i] = min(max(self.q[i] + self.vel[i] * dt, lo), hi)
         if self.q[i] in (lo, hi):
             self.vel[i] = 0.0
@@ -177,14 +177,16 @@ class Mover:
                 self.message = f"{config.JOINTS[i]['name']} ถึง limit"
         if d == 0 and self.vel[i] == 0.0:
             self.mode = None
+            self._finished = list(self.q)                      # ให้ driver ชดเชยแขนยวบที่ท่าที่หยุด
 
     def _step_jog_xyz(self, dt):
         axis, d = self._jog
         v, a, v_cart = self._jog_speed()
-        dv = a / v * v_cart * dt                               # เร่งถึงความเร็วเต็มในเวลาเท่ากับแบบข้อต่อ
+        dv = a / v * v_cart * dt * (1 if d else config.JOG_STOP)   # ปล่อยปุ่ม: ผ่อนช้ากว่าตอนเร่ง กันแขนเด้ง
         self._vc += max(-dv, min(dv, d * v_cart - self._vc))
         if d == 0 and abs(self._vc) < 1e-9:
             self._vc, self.mode = 0.0, None
+            self._finished = list(self.q)                      # ให้ driver ชดเชยแขนยวบที่ท่าที่หยุด
             return
         for _ in range(2):                                     # ข้อต้องหมุนเร็วเกิน v → ลดความเร็วปลายแขนแล้วคิดใหม่
             tip = self._tip.copy()

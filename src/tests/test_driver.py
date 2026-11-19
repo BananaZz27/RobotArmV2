@@ -111,8 +111,7 @@ def test_new_command_cancels_correction():
     d = Driver(arm, Mover([0] * 5, v=10))
     d.do(lambda m: m.goto_q([0, 10, 0, 0, 0]))
     t = _drive(d, 2.0)
-    d.do(lambda m: m.jog_joint(0, +1))
-    d.do(lambda m: m.release())
+    d.do(lambda m: m.follow([5, 10, 0, 0, 0]))     # คำสั่งใหม่ (slider) — follow จบแล้วไม่ชดเชย
     _drive(d, 5.0, t)
     assert max(q[1] for q, _t in arm.sent) == pytest.approx(10)    # ไม่มีการชดเชยไหล่เกิดขึ้น
 
@@ -158,3 +157,18 @@ def test_servo_speed_steady_despite_tick_jitter():
         if k > 15:                                   # ช่วงวิ่งความเร็วคงที่ (เร่งเสร็จแล้ว)
             speeds.append((arm.sent[-1][0][2] - d.mover.q[2]) / (config.STREAM_MS / 1000))
     assert min(speeds) == pytest.approx(30, rel=0.02) and max(speeds) == pytest.approx(30, rel=0.02)
+
+
+def test_correction_after_jog_release():
+    """ปล่อยปุ่ม jog แล้วแขนยวบ 1.5° → ชดเชยจนมุมจริงอยู่ที่ท่าที่หยุด (≤ 0.5°)"""
+    arm = FakeArm(sag=1.5)
+    d = Driver(arm, Mover([0] * 5, v=30, a=90))
+    d.do(lambda m: m.jog_joint(1, +1))
+    t = _drive(d, 0.5)
+    d.do(lambda m: m.release())
+    while d.mover.busy:                               # ผ่อนจนหยุด → จำท่าที่หยุด
+        t = _drive(d, DT, t)
+    q_stop = d.mover.q[1]
+    assert q_stop - arm.q_actual[1] == pytest.approx(1.5)   # ก่อนชดเชย: ยวบ 1.5°
+    _drive(d, 6.0, t)
+    assert abs(arm.q_actual[1] - q_stop) <= config.CORR_TOL and "ชดเชย" in d.message
