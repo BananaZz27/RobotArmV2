@@ -1,13 +1,13 @@
 # หน้าตาหน้าต่าง: สี ฟอนต์ และ stylesheet ที่ใช้ร่วมกัน (qt_app.py, viewer3d.py)
 #   ปุ่มแบ่งตามหน้าที่ด้วย property "kind" · ป้ายแบ่งด้วย property "role" · การ์ด = QFrame ชื่อ "card"
-#   2 ธีม: "dark" (ค่าเริ่มต้น — พื้นเข้ม เรียบ ๆ สีฟ้าเฉพาะจุดสำคัญ) / "light" — เลือกด้วย env ROBOTARM_THEME=light
+#   2 ธีม: "light" (ค่าเริ่มต้น — การ์ดขาวพื้นเทาอ่อน) / "dark" (พื้นเข้ม) — เลือกด้วย env ROBOTARM_THEME=dark
 import os
 
 from PyQt6.QtGui import QColor, QFont, QPalette
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
-STYLE = os.environ.get("ROBOTARM_THEME", "dark")
-DARK = STYLE != "light"
+STYLE = os.environ.get("ROBOTARM_THEME", "light")
+DARK = STYLE == "dark"
 
 FONT_UI = "Leelawadee UI"                   # มีทั้งอักษรไทยและละติน (Windows) — Tahoma/Consolas ไม่มีไทยครบ → ตัวเล็กผิดปกติ
 FONT_NUM = ["Bahnschrift", FONT_UI]         # ตัวเลขใหญ่ (ค่า FK): ตัวเหลี่ยมอ่านง่ายแบบหน้าปัด
