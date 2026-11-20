@@ -164,7 +164,10 @@ class Mover:
         i, d = self._jog
         v, a, _ = self._jog_speed()
         lo, hi = config.Q_MIN[i], config.Q_MAX[i]
-        room = (hi - self.q[i]) if self.vel[i] >= 0 else (self.q[i] - lo)
+        # ระยะเหลือถึง limit ฝั่งที่กำลังไป: เคลื่อนอยู่ = ตามความเร็ว · นิ่ง = ตามปุ่มที่กด
+        # (เดิมใช้ vel >= 0 → นิ่งที่ limit บน กด − แล้ว room = 0 เบรก = 0 ค้างที่ limit เช่นคอก้มสุด 78.2° ในท่า Standby)
+        up = self.vel[i] > 0 or (self.vel[i] == 0 and d > 0)
+        room = (hi - self.q[i]) if up else (self.q[i] - lo)
         # เพดานเบรก v ≤ √(a·ระยะ) = เบรกด้วยครึ่งของ a — ถ้าใช้ a เต็ม (√(2a·ระยะ)) ตัวผ่อนตามไม่ทัน ชน limit ที่ ~14 °/s
         brake = math.sqrt(a * max(room, 0.0))
         v_target = d * min(v, brake)

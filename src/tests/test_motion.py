@@ -230,3 +230,16 @@ def test_goto_q_with_slower_speed():
     m.goto_q([0, 0, 40, 0], v=20)
     traj = _run(m, 1.875 * 40 / 20 + 0.1, v_check=20)          # ไม่เกิน 20 °/s แม้ Mover ตั้งไว้ 150
     assert traj[-1][2] == pytest.approx(40) and not m.busy
+
+
+@pytest.mark.parametrize("i", range(4))
+@pytest.mark.parametrize("at_max", [True, False])
+def test_jog_away_from_limit_moves(i, at_max):
+    """ข้อที่ค้างอยู่ที่ limit (เช่นคอก้มสุด 78.2° = ท่า Standby) ต้อง jog ถอยออกได้ — เดิมค้างที่ limit บน"""
+    q = [0.0, 0.0, 0.0, 0.0]
+    q[i] = config.Q_MAX[i] if at_max else config.Q_MIN[i]
+    m = Mover(q)
+    m.jog_joint(i, -1 if at_max else +1)
+    for _ in range(25):
+        m.step(0.04)
+    assert abs(m.q[i] - q[i]) > 5
