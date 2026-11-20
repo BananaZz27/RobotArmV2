@@ -101,8 +101,23 @@ def check_limits(q):
     return " · ".join(bad) if bad else None
 
 
-def inverse_kinematics(x, y, z, phi=-90.0, elbow_up=True, theta1_prev=0.0):
-    """ตำแหน่งปลายหัว (x, y, z) mm + มุมหัว φ (องศา) → มุม servo q"""
+@dataclass
+class IKGeo:
+    """ผลคำนวณ IK ก่อนตรวจ limit — เก็บค่าระหว่างทางไว้อธิบายผู้ใช้ (ik_explain.py)"""
+    q: list | None    # มุม servo (ยังไม่ตรวจ limit) · None = ข้อมือเอื้อมไม่ถึง
+    theta1: float     # มุมฐานที่ใช้ (องศา)
+    r: float          # ระยะแนวนอนปลายแขนตามทิศ θ₁ (ติดลบ = แขนหันหลัง)
+    rc: float         # ข้อมือ: ระยะแนวนอน
+    s: float          # ข้อมือ: สูงเหนือแกนไหล่
+    dist: float       # ข้อมือห่างจากแกนไหล่ √(rc² + s²)
+
+
+REACH_MIN, REACH_MAX = abs(A2 - A3), A2 + A3     # ระยะไหล่ → ข้อมือ ที่ท่อน a2, a3 ทำได้
+
+
+def solve_ik(x, y, z, phi=-90.0, elbow_up=True, theta1_prev=0.0, flip=None):
+    """IK แบบยังไม่ตรวจ limit · flip: None = เลือกเอง (ใกล้แกนฐานยอมหันหลัง), False = หันหน้า θ₁ = atan2(y, x),
+    True = หันหลัง θ₁ + 180° (คำตอบที่สองของสไลด์ θ₁ = π + Atan2)"""
     phi_r = np.radians(phi)
 
     # θ₁: สไลด์เขียน θ₁ = Atan2(xc, yc) แบบ Spong (อาร์กิวเมนต์ = cos, sin)
@@ -110,23 +125,26 @@ def inverse_kinematics(x, y, z, phi=-90.0, elbow_up=True, theta1_prev=0.0):
     r = np.sqrt(x * x + y * y)               # สไลด์: r² = xc² + yc² (ระยะแนวนอนจากแกนฐาน)
     if x * x + y * y < 1e-9:
         theta1 = theta1_prev      # สไลด์: singular configuration — θ₁ เป็นค่าใดก็ได้ จึงใช้ค่าเดิม
+        if flip:
+            theta1 = wrap180(theta1 + 180.0)
     else:
         theta1 = np.degrees(np.arctan2(y, x))
-        # ใกล้แกนฐาน: ปลายแขนเลยหลังแกนไปนิดเดียว atan2 กระโดดเป็น ~180° (ฐานเกิน limit — เจอจริงตอน jog Z− จากท่าตั้งตรง)
-        # → ใช้คำตอบที่สองของสไลด์ θ₁ + 180° กับ r ติดลบ (เอนไปข้างหลังแทนหมุนฐาน) ถ้าใกล้มุมฐานเดิมกว่า
         flipped = wrap180(theta1 + 180.0)
-        if r < NEAR_AXIS_MM and abs(wrap180(flipped - theta1_prev)) < abs(wrap180(theta1 - theta1_prev)):
+        if flip is None:
+            # ใกล้แกนฐาน: ปลายแขนเลยหลังแกนไปนิดเดียว atan2 กระโดดเป็น ~180° (ฐานเกิน limit — เจอจริงตอน jog Z− จากท่าตั้งตรง)
+            # → ใช้คำตอบที่สองของสไลด์ θ₁ + 180° กับ r ติดลบ (เอนไปข้างหลังแทนหมุนฐาน) ถ้าใกล้มุมฐานเดิมกว่า
+            flip = r < NEAR_AXIS_MM and abs(wrap180(flipped - theta1_prev)) < abs(wrap180(theta1 - theta1_prev))
+        if flip:
             theta1, r = flipped, -r
     # kinematic decoupling (สไลด์: oc = o − d·R·k): ถอยจากปลายหัวกลับไปที่ข้อมือ ระยะ a4 ตามทิศหัว φ
     rc = r - A4 * np.cos(phi_r)              # ระยะแนวนอนของข้อมือ
     s = z - A4 * np.sin(phi_r) - D1          # สไลด์: s = zc − d1 (ความสูงข้อมือเหนือไหล่)
+    geo = IKGeo(None, float(theta1), float(r), float(rc), float(s), float(np.hypot(rc, s)))
 
     # สไลด์: กฎ cosine  D = cos θ₃ = (r² + s² − a2² − a3²) / (2·a2·a3)
     D = (rc * rc + s * s - A2 * A2 - A3 * A3) / (2 * A2 * A3)
     if abs(D) > 1 + 1e-9:
-        dist = np.hypot(rc, s)
-        return IK(False, None, f"เอื้อมไม่ถึง: ข้อมือห่างจากไหล่ {dist:.1f} mm "
-                               f"แต่ท่อนแขนยาวได้ {abs(A2 - A3):.1f}…{A2 + A3:.1f} mm")
+        return geo
     D = float(np.clip(D, -1.0, 1.0))         # ตัดเศษปัดเลขตอนแขนเหยียดตรงพอดี (D = ±1)
 
     # สไลด์: θ₃ = Atan2(D, ±√(1 − D²)) → numpy: arctan2(±√(1 − D²), D)
@@ -141,8 +159,17 @@ def inverse_kinematics(x, y, z, phi=-90.0, elbow_up=True, theta1_prev=0.0):
     theta4 = phi_r - theta2 - theta3
 
     theta = [theta1, np.degrees(theta2), np.degrees(theta3), np.degrees(theta4)]
-    q = [wrap180(v) for v in theta_to_q(theta)]
-    reason = check_limits(q)
+    geo.q = [float(wrap180(v)) for v in theta_to_q(theta)]
+    return geo
+
+
+def inverse_kinematics(x, y, z, phi=-90.0, elbow_up=True, theta1_prev=0.0):
+    """ตำแหน่งปลายหัว (x, y, z) mm + มุมหัว φ (องศา) → มุม servo q"""
+    geo = solve_ik(x, y, z, phi, elbow_up, theta1_prev)
+    if geo.q is None:
+        return IK(False, None, f"เอื้อมไม่ถึง: ข้อมือห่างจากไหล่ {geo.dist:.1f} mm "
+                               f"แต่ท่อนแขนยาวได้ {REACH_MIN:.1f}…{REACH_MAX:.1f} mm")
+    reason = check_limits(geo.q)
     if reason:
         return IK(False, None, reason)
-    return IK(True, [float(v) for v in q], "")
+    return IK(True, list(geo.q), "")

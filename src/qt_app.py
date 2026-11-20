@@ -11,6 +11,7 @@ import math
 import sys
 import time
 from datetime import datetime
+from html import escape
 
 import serial
 from PyQt6.QtCore import QLocale, Qt, QTimer
@@ -21,7 +22,9 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QDoubleSpinBox, QFormLayou
 
 import config
 from driver import Driver
-from kinematics import check_limits, forward_kinematics, inverse_kinematics
+from ik_explain import TIP_MAX, diagnose, fmt_ranges
+from ik_sketch import IKSketch
+from kinematics import check_limits, forward_kinematics
 from link import DirectLink, SimLink
 from motion import Mover, clamp_q
 from singularity import analyze, report
@@ -36,6 +39,32 @@ def _spin(lo, hi, step, suffix, value=0.0, decimals=1):
     s = QDoubleSpinBox(decimals=decimals, minimum=lo, maximum=hi, singleStep=step, suffix=suffix)
     s.setValue(value)
     return s
+
+
+def _ik_html(d):
+    """ผล IK + เหตุผล (ik_explain.Diagnosis) → HTML สำหรับกล่องผลลัพธ์"""
+    color = "#2a9d8f" if d.exact else ("#c77d14" if d.q is not None else "#d1453b")
+    out = [f"<p style='font-size:15px;font-weight:600;color:{color};margin:0'>{escape(d.headline)}</p>"]
+    for title, items, c in (("สาเหตุ", d.reasons, "#d1453b"), ("ลองแก้", d.hints, "#2a6fdb"), ("ระวัง", d.warnings, "#c77d14")):
+        if items:
+            out.append(f"<p style='margin:6px 0 0'><b style='color:{c}'>{title}</b></p><ul style='margin:0'>" +
+                       "".join(f"<li>{escape(t)}</li>" for t in items) + "</ul>")
+    rows = []
+    for o in d.options:
+        chosen = d.exact and o.ok and d.q is not None and all(abs(a - b) < 1e-6 for a, b in zip(o.geo.q, d.q))
+        mark, c = ("★", "#2a9d8f") if chosen else (("✓", "#2a9d8f") if o.ok else ("✗", "#d1453b"))
+        q = "  ".join(f"{v:6.1f}" for v in o.geo.q) if o.geo.q is not None else "—"
+        rows.append(f"<tr><td style='color:{c}'>{mark}</td><td>{o.name}</td><td style='font-family:Consolas'>{q}</td>"
+                    f"<td style='color:#d1453b'>{escape(o.why())}</td></tr>")
+    out.append(f"<p style='margin:8px 0 2px'><b>4 ท่าที่ φ = {d.phi:.0f}°</b> (สไลด์ IK: θ₁ = Atan2 / π + Atan2 × ศอกขึ้น/ลง"
+               " · ★ = ที่ใช้ · โปรแกรมใช้เฉพาะท่าหันหน้า)</p>"
+               "<table cellspacing='0' cellpadding='3'><tr><th></th><th align='left'>ท่า</th>"
+               "<th align='left'>q1 … q4 (°)</th><th align='left'>ทำไมใช้ไม่ได้</th></tr>" + "".join(rows) + "</table>")
+    out.append(f"<p style='margin:6px 0 0'>φ ที่ไปได้ที่ตำแหน่งนี้: <b>{fmt_ranges(d.phi_ranges) or 'ไม่มี'}</b>"
+               f" · ปลายแขนห่างแกนไหล่ {d.tip_dist:.1f} mm (ไกลสุด {TIP_MAX:.1f})</p>")
+    if d.q is not None:
+        out.append(f"<pre style='font-family:Consolas'>{escape(report(d.q))}</pre>")
+    return "".join(out)
 
 
 def _set_quiet(widget, value):
@@ -208,7 +237,7 @@ class MainWindow(QMainWindow):
             b.clicked.connect(fn)
             btns.addWidget(b)
         self.ik_result = QTextEdit(readOnly=True)
-        self.ik_result.setFont(MONO)
+        self.ik_sketch = IKSketch()                  # รูปมุมมองข้าง: ทำไมไปได้/ไม่ได้
         help_ = QLabel("φ: 0° = ปลายแขนชี้ออกไปข้างหน้า, −90° = ชี้ลงพื้น, +90° = ชี้ฟ้า\n"
                        "แขน 4 ข้อคุมทิศได้แค่ φ (yaw ถูกกำหนดโดยตำแหน่ง X, Y เอง)")
         help_.setStyleSheet("color:#666")
@@ -217,6 +246,7 @@ class MainWindow(QMainWindow):
         lay.addLayout(form)
         lay.addLayout(btns)
         lay.addWidget(help_)
+        lay.addWidget(self.ik_sketch, 1)
         lay.addWidget(QLabel("<b>ผลลัพธ์ IK</b>"))
         lay.addWidget(self.ik_result)
         return w
@@ -353,35 +383,22 @@ class MainWindow(QMainWindow):
     def ik_solve(self, send):
         x, y, z, phi = self.ik_x.value(), self.ik_y.value(), self.ik_z.value(), self.ik_phi.value()
         self.viewer.show_ik_marker((x, y, z))
-        lines, best = [], None
-        for elbow_up, name in ((True, "elbow up"), (False, "elbow down")):
-            ik = inverse_kinematics(x, y, z, phi, elbow_up, theta1_prev=self.q_target[0])
-            if ik.ok:
-                lines.append(f"{'★' if best is None else '✓'} {name:<10} [" +
-                             "  ".join(f"{ik.q[i]:7.1f}" for i in USED) + "]")
-                best = best or ik.q
-            else:
-                lines.append(f"✗ {name:<10} {ik.reason}")
-        head = "✅ ได้คำตอบ (★ = ที่ใช้)" if best else "❌ ไปจุดนี้ไม่ได้"
-        if best is None:                     # ตำแหน่งอาจไปได้ แต่ไม่ใช่ด้วย φ นี้ → หา φ ที่ใกล้ที่สุดที่ไปได้
-            for p in sorted(range(-180, 181), key=lambda p: abs(p - phi)):
-                ik = inverse_kinematics(x, y, z, p, True, theta1_prev=self.q_target[0])
-                if not ik.ok:
-                    ik = inverse_kinematics(x, y, z, p, False, theta1_prev=self.q_target[0])
-                if ik.ok:
-                    best = ik.q
-                    head = f"⚠ φ = {phi:.0f}° ไปไม่ได้ → ใช้ φ = {p}° แทน (ใกล้ที่สุดที่ไปถึง)"
-                    lines.append(f"★ φ {p:<8} [" + "  ".join(f"{ik.q[i]:7.1f}" for i in USED) + "]")
-                    self.log(head)
-                    break
-        proof = "\n\n" + report(best) if best else ""
-        self.ik_result.setPlainText(head + "\n\n" + "\n".join(lines) + proof)
-        if best:
-            if analyze(best)["warnings"]:
-                self.log(f"⚠ จุด ({x:.0f}, {y:.0f}, {z:.0f}) ใกล้ singularity — ดูหลักฐานในแท็บ IK")
-            self.set_target(best)
-            if send:
-                self.send()
+        d = diagnose(x, y, z, phi, theta1_prev=self.q_target[0])     # ไปได้ไหม + เหตุผล (ik_explain.py)
+        self.ik_sketch.set_diagnosis(d)
+        self.ik_result.setHtml(_ik_html(d))
+        best = d.q
+        if best is None:
+            self.log(f"❌ IK ({x:.0f}, {y:.0f}, {z:.0f}) φ {phi:.0f}°: " + d.reasons[0])
+            return
+        if not d.exact:
+            self.log(d.headline + " — " + d.reasons[0])
+        for w in d.warnings:
+            self.log("⚠ " + w)
+        if analyze(best)["warnings"]:
+            self.log(f"⚠ จุด ({x:.0f}, {y:.0f}, {z:.0f}) ใกล้ singularity — ดูหลักฐานในแท็บ IK")
+        self.set_target(best)
+        if send:
+            self.send()
 
     # ================= เชื่อมต่อ =================
     def _use_link(self, link):
