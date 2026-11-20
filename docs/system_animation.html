@@ -1,0 +1,516 @@
+<title>เส้นทางคำสั่งแขน 4DOF</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: แถบสถานการณ์ → [diagram เส้นทางข้อมูล | แขนจำลอง + มาตรวัด] → คำอธิบายขั้นปัจจุบัน → รายการทุกขั้น
+   สี: ส้ม = ท่าที่สั่ง (Target) · ฟ้า = ท่าจริง/ข้อมูลที่อ่านกลับ — ตรงกับหน้าต่างโปรแกรมจริง */
+:root {
+  --bg: #F3F5F4; --panel: #FFFFFF; --ink: #16242A; --muted: #5B6A70; --line: #C4CDCF; --zone: #E8EDEC;
+  --target: #D9631E; --target-soft: #FCEBDF; --actual: #2B74E0; --actual-soft: #E3EEFD;
+  --ok: #2C8754; --danger: #CC3F35; --danger-soft: #FBE4E2;
+  --f-text: "IBM Plex Sans Thai", "Leelawadee UI", "Tahoma", sans-serif;
+  --f-mono: "IBM Plex Mono", "Consolas", monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0E1417; --panel: #162025; --ink: #E2EAED; --muted: #92A2A8; --line: #33434A; --zone: #121A1E;
+  --target: #FF8C42; --target-soft: #3A2516; --actual: #5E9EFF; --actual-soft: #182A44;
+  --ok: #4CC38A; --danger: #FF6B5E; --danger-soft: #3D1C1A; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0E1417; --panel: #162025; --ink: #E2EAED; --muted: #92A2A8; --line: #33434A; --zone: #121A1E;
+  --target: #FF8C42; --target-soft: #3A2516; --actual: #5E9EFF; --actual-soft: #182A44;
+  --ok: #4CC38A; --danger: #FF6B5E; --danger-soft: #3D1C1A; color-scheme: dark }
+
+body { background: var(--bg); color: var(--ink); font-family: var(--f-text); font-size: 15px; line-height: 1.6; }
+.wrap { max-width: 1200px; margin: 0 auto; padding-block: 24px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 20px; }
+header { display: grid; gap: 4px; }
+h1 { font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2.1rem); font-weight: 700; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+.lede { margin: 0; color: var(--muted); max-width: 70ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 18px; height: 4px; border-radius: 2px; display: inline-block; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tab { font: inherit; font-weight: 500; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink); cursor: pointer; }
+.tab[aria-selected="true"] { border-color: var(--target); background: var(--target-soft); }
+.tab:focus-visible, .ctrl:focus-visible, .steps button:focus-visible { outline: 2px solid var(--actual); outline-offset: 2px; }
+
+.stage { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+.scroll { overflow-x: auto; }
+#diagram { display: block; width: 100%; min-width: 640px; height: auto; }
+.card h2 { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 8px; }
+
+/* diagram */
+.zone { fill: var(--zone); stroke: var(--line); stroke-dasharray: 4 4; }
+.zone-label { fill: var(--muted); font: 600 12px var(--f-text); letter-spacing: 0.04em; }
+.node rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; transition: fill .3s, stroke .3s; }
+.node .t { fill: var(--ink); font: 600 14px var(--f-text); }
+.node .s { fill: var(--muted); font: 400 11.5px var(--f-mono); }
+.node.on rect { fill: var(--target-soft); stroke: var(--target); stroke-width: 2; }
+.node.read rect { fill: var(--actual-soft); stroke: var(--actual); stroke-width: 2; }
+.node.bad rect { fill: var(--danger-soft); stroke: var(--danger); stroke-width: 2; }
+.edge { fill: none; stroke: var(--line); stroke-width: 1.6; }
+.edge.fb { stroke-dasharray: 5 4; }
+.edge.on { stroke: var(--target); stroke-width: 2.6; }
+.edge.fb.on { stroke: var(--actual); }
+.pulse { fill: var(--target); }
+.pulse.fb { fill: var(--actual); }
+.bus-label { fill: var(--muted); font: 400 11px var(--f-mono); }
+
+/* แขน */
+#arm { display: block; width: 100%; height: auto; max-height: 340px; }
+.grid-l { stroke: var(--line); stroke-width: 0.6; opacity: .6; }
+.floor { stroke: var(--muted); stroke-width: 1.5; }
+.base { fill: var(--zone); stroke: var(--muted); }
+.lnk-t { stroke: var(--target); stroke-width: 9; stroke-linecap: round; fill: none; }
+.lnk-a { stroke: var(--actual); stroke-width: 15; stroke-linecap: round; fill: none; opacity: .28; }
+.jt { fill: var(--panel); stroke: var(--target); stroke-width: 2.5; }
+.goal { fill: none; stroke: var(--target); stroke-width: 2; }
+.plan { fill: none; stroke: var(--target); stroke-width: 1.5; stroke-dasharray: 3 4; }
+.arm-note { fill: var(--muted); font: 400 11px var(--f-text); }
+
+.meters { display: grid; gap: 10px; margin-top: 10px; }
+.meter-row { display: grid; grid-template-columns: 74px minmax(0, 1fr) 64px; gap: 8px; align-items: center; font-size: 13px; }
+.meter-row .v { font-family: var(--f-mono); text-align: right; font-variant-numeric: tabular-nums; }
+.bar { position: relative; height: 10px; background: var(--zone); border-radius: 5px; border: 1px solid var(--line); }
+.bar i { position: absolute; inset: 0 auto 0 0; border-radius: 5px; background: var(--ok); transition: width .5s, background .3s; }
+.bar b { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--danger); }
+table.q { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+table.q th, table.q td { padding: 3px 6px; text-align: right; border-bottom: 1px solid var(--line); }
+table.q th:first-child, table.q td:first-child { text-align: left; }
+table.q td { font-family: var(--f-mono); }
+.c-t { color: var(--target); } .c-a { color: var(--actual); }
+#tickWrap svg { display: block; width: 100%; height: auto; }
+.tick { stroke: var(--muted); stroke-width: 1.2; }
+.tick-ahead { stroke: var(--target); stroke-width: 1.2; fill: none; }
+.tick-head { stroke: var(--actual); stroke-width: 2; }
+.tick-label { fill: var(--muted); font: 400 10px var(--f-mono); }
+
+/* คำอธิบาย */
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ctrl { font: inherit; font-size: 14px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+.ctrl.primary { background: var(--ink); color: var(--panel); border-color: var(--ink); min-width: 96px; }
+.counter { font-family: var(--f-mono); color: var(--muted); font-size: 13px; margin-left: auto; }
+.caption { display: grid; gap: 8px; }
+.caption h3 { margin: 0; font-size: 1.15rem; font-weight: 600; text-wrap: balance; }
+.caption p { margin: 0; max-width: 75ch; }
+.code { font-family: var(--f-mono); font-size: 12.5px; color: var(--muted); }
+.bytes { display: flex; flex-wrap: wrap; gap: 6px; }
+.byte { display: grid; justify-items: center; gap: 2px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; min-width: 34px; }
+.byte code { font-family: var(--f-mono); font-size: 14px; font-weight: 500; }
+.byte small { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.byte.hl { border-color: var(--target); background: var(--target-soft); }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; counter-reset: s; }
+.steps button { width: 100%; text-align: left; font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 6px; border: 0; background: transparent; color: var(--muted); cursor: pointer; display: grid; grid-template-columns: 28px 1fr; gap: 6px; }
+.steps button .n { font-family: var(--f-mono); }
+.steps button[aria-current="step"] { background: var(--target-soft); color: var(--ink); font-weight: 500; }
+.foot { color: var(--muted); font-size: 13px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>เส้นทางคำสั่งแขน 4DOF</h1>
+    <p class="lede">คำสั่งหนึ่งครั้งเดินทางจากหน้าต่างโปรแกรมไปถึง servo และอ่านกลับมาอย่างไร ตัวเลขทุกตัวคำนวณจากโค้ดจริงใน <code>src/</code> (RobotArmSmooth)</p>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--target)"></i>คำสั่ง / ท่าที่สั่ง (Target)</span>
+      <span><i class="sw" style="background:var(--actual)"></i>ข้อมูลที่อ่านกลับ / ท่าจริง</span>
+      <span><i class="sw" style="background:var(--danger)"></i>หยุดเพื่อความปลอดภัย</span>
+    </div>
+  </header>
+
+  <div class="tabs" role="tablist" aria-label="สถานการณ์" id="tabs"></div>
+
+  <div class="stage">
+    <section class="card">
+      <h2>เส้นทางข้อมูล</h2>
+      <div class="scroll"><svg id="diagram" viewBox="0 0 760 480" role="img" aria-label="แผนภาพเส้นทางข้อมูลจากหน้าต่างไปถึง servo"></svg></div>
+    </section>
+    <section class="card">
+      <h2>แขน (มุมมองด้านข้าง) <span id="slow" class="code"></span></h2>
+      <svg id="arm" viewBox="-60 -400 360 420" role="img" aria-label="แขนจำลอง ส้ม = ท่าที่สั่ง ฟ้า = ท่าจริง"></svg>
+      <div class="meters">
+        <div class="meter-row"><span>ไฟ servo</span><div class="bar"><i id="voltBar"></i><b style="left:calc(6/9*100%)" title="6 V"></b></div><span class="v" id="voltV">7.6 V</span></div>
+        <table class="q" aria-label="มุมข้อต่อ">
+          <thead><tr><th>ข้อ</th><th class="c-t">สั่ง</th><th class="c-a">จริง</th></tr></thead>
+          <tbody id="qBody"></tbody>
+        </table>
+        <div id="tickWrap" hidden>
+          <svg viewBox="0 0 320 54" aria-label="จังหวะ driver: รอบจริงแกว่ง 27–52 ms ส่งท่าล่วงหน้า 80 ms"><g id="ticks"></g></svg>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="card caption" aria-live="polite">
+    <div class="controls">
+      <button class="ctrl" id="prev" type="button">◀ ก่อนหน้า</button>
+      <button class="ctrl primary" id="play" type="button">❚❚ หยุด</button>
+      <button class="ctrl" id="next" type="button">ถัดไป ▶</button>
+      <span class="counter" id="counter"></span>
+    </div>
+    <h3 id="capTitle"></h3>
+    <p id="capText"></p>
+    <div id="capExtra"></div>
+    <div class="code" id="capCode"></div>
+  </section>
+
+  <section class="card">
+    <h2>ทุกขั้นของสถานการณ์นี้</h2>
+    <ol class="steps" id="steps"></ol>
+  </section>
+
+  <p class="foot">ขนาดแขน d1 = 96.7 · a2 = 137.0 · a3 = 98.3 · a4 = 50.0 mm · servo SCS15 1023 tick / 250° = 4.092 tick/° · ไฟต่ำกว่า 6 V ไม่ส่งคำสั่ง</p>
+</div>
+
+<script>
+(() => {
+const NS = "http://www.w3.org/2000/svg";
+const D1 = 96.7, A2 = 137.0, A3 = 98.3, A4 = 50.0, R2D = 180 / Math.PI;
+const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const el = (tag, attrs = {}, parent) => {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+};
+
+/* ---------- kinematics ในระนาบแขน (ฐาน = 0°) — สูตรเดียวกับ kinematics.py ---------- */
+function fk(q) {               // q = [q2, q3, q4] องศา → จุดข้อต่อ (r, z)
+  const t2 = (90 - q[0]) / R2D, t3 = -q[1] / R2D, t4 = -q[2] / R2D;
+  const p0 = [0, 0], p1 = [0, D1];
+  const p2 = [p1[0] + A2 * Math.cos(t2), p1[1] + A2 * Math.sin(t2)];
+  const p3 = [p2[0] + A3 * Math.cos(t2 + t3), p2[1] + A3 * Math.sin(t2 + t3)];
+  const p4 = [p3[0] + A4 * Math.cos(t2 + t3 + t4), p3[1] + A4 * Math.sin(t2 + t3 + t4)];
+  return [p0, p1, p2, p3, p4];
+}
+function ik(r, z, phiDeg) {    // elbow up, คืน [q2, q3, q4]
+  const phi = phiDeg / R2D;
+  const rc = r - A4 * Math.cos(phi), s = z - A4 * Math.sin(phi) - D1;
+  let D = (rc * rc + s * s - A2 * A2 - A3 * A3) / (2 * A2 * A3);
+  D = Math.max(-1, Math.min(1, D));
+  const t3 = Math.atan2(-Math.sqrt(1 - D * D), D);
+  const t2 = Math.atan2(s, rc) - Math.atan2(A3 * Math.sin(t3), A2 + A3 * Math.cos(t3));
+  const t4 = phi - t2 - t3;
+  return [90 - t2 * R2D, -t3 * R2D, -t4 * R2D];
+}
+const minJerk = (u) => { u = Math.max(0, Math.min(1, u)); return u * u * u * (10 - 15 * u + 6 * u * u); };
+const lerp = (a, b, u) => a.map((v, i) => v + (b[i] - v) * u);
+
+const STANDBY = [0, 100, 78.2];
+const tip0 = fk(STANDBY)[4];                         // (98.4, 166.7), φ −88.2°
+const line = (p0, f0, p1, f1) => (u) => { const s = minJerk(u); return ik(p0[0] + (p1[0] - p0[0]) * s, p0[1] + (p1[1] - p0[1]) * s, f0 + (f1 - f0) * s); };
+const TRAJ1 = line(tip0, -88.2, [200, 50], -90);     // goto_xyz(200, 0, 50, −90)  T = 1.19 s
+const TRAJ3 = line(tip0, -88.2, [250, 150], 0);      // ยื่นแขนไปหน้า (250, 0, 150, 0)
+const GOAL1 = ik(200, 50, -90);                     // (62.7, 64.5, 52.7)
+
+/* ---------- diagram ---------- */
+const NODES = {
+  gui:    { x: 30,  y: 46,  w: 200, h: 64, t: "หน้าต่าง", s: "qt_app.py" },
+  ik:     { x: 280, y: 46,  w: 200, h: 64, t: "Inverse Kinematics", s: "kinematics.py" },
+  mover:  { x: 530, y: 46,  w: 200, h: 64, t: "ตัวป้อนท่า (min-jerk)", s: "motion.py · Mover" },
+  driver: { x: 530, y: 156, w: 200, h: 64, t: "ตัวขับ ทุก ~40 ms", s: "driver.py · Driver" },
+  link:   { x: 280, y: 156, w: 200, h: 64, t: "มุม → raw", s: "link.py · send_q" },
+  scs:    { x: 30,  y: 156, w: 200, h: 64, t: "สร้าง packet SCS", s: "scs.py" },
+  reader: { x: 280, y: 244, w: 200, h: 50, t: "ตัวอ่าน ทุก 100 ms", s: "link.py · _read_all" },
+  usb:    { x: 30,  y: 360, w: 150, h: 64, t: "USB COM11", s: "CH343" },
+  adapter:{ x: 210, y: 360, w: 180, h: 64, t: "Bus Servo Adapter", s: "(A) จัมเปอร์ B" },
+  s4:     { x: 420, y: 360, w: 72,  h: 64, t: "ฐาน", s: "ID 4" },
+  s9:     { x: 500, y: 360, w: 72,  h: 64, t: "ไหล่", s: "ID 9" },
+  s7:     { x: 580, y: 360, w: 72,  h: 64, t: "ศอก", s: "ID 7" },
+  s2:     { x: 660, y: 360, w: 72,  h: 64, t: "คอ", s: "ID 2" },
+};
+const SERVOS = ["s4", "s9", "s7", "s2"];
+const EDGES = {
+  "gui-ik":        { p: [[230, 78], [280, 78]] },
+  "ik-mover":      { p: [[480, 78], [530, 78]] },
+  "mover-driver":  { p: [[615, 110], [615, 156]] },
+  "driver-mover":  { p: [[650, 156], [650, 110]] },
+  "driver-link":   { p: [[530, 188], [480, 188]] },
+  "link-scs":      { p: [[280, 188], [230, 188]] },
+  "scs-usb":       { p: [[100, 220], [100, 360]] },
+  "usb-adapter":   { p: [[180, 384], [210, 384]] },
+  "adapter-bus":   { p: [[390, 384], [404, 384], [404, 448], [696, 448]] },
+  "bus-adapter":   { p: [[696, 456], [396, 456], [396, 404], [390, 404]], fb: 1 },
+  "adapter-usb":   { p: [[210, 404], [180, 404]], fb: 1 },
+  "usb-reader":    { p: [[140, 360], [140, 269], [280, 269]], fb: 1 },
+  "reader-driver": { p: [[480, 269], [690, 269], [690, 220]], fb: 1 },
+  "reader-gui":    { p: [[280, 282], [255, 282], [255, 124], [150, 124], [150, 110]], fb: 1 },
+};
+const svg = document.getElementById("diagram");
+el("rect", { class: "zone", x: 10, y: 14, width: 740, height: 296, rx: 10 }, svg);
+el("text", { class: "zone-label", x: 22, y: 34 }, svg).textContent = "PC — Python";
+el("rect", { class: "zone", x: 10, y: 326, width: 740, height: 144, rx: 10 }, svg);
+el("text", { class: "zone-label", x: 22, y: 346 }, svg).textContent = "ฮาร์ดแวร์";
+for (const n of SERVOS) el("line", { x1: NODES[n].x + 36, y1: 424, x2: NODES[n].x + 36, y2: 448, class: "edge" }, svg);
+el("text", { class: "bus-label", x: 600, y: 344 }, svg).textContent = "บัส servo 1 Mbps";
+const edgeEls = {};
+for (const [id, e] of Object.entries(EDGES)) {
+  const pts = e.p.map((p) => p.join(",")).join(" ");
+  edgeEls[id] = el("polyline", { points: pts, class: "edge" + (e.fb ? " fb" : "") }, svg);
+  let L = 0; for (let i = 1; i < e.p.length; i++) L += Math.hypot(e.p[i][0] - e.p[i - 1][0], e.p[i][1] - e.p[i - 1][1]);
+  e.len = L;
+}
+const nodeEls = {};
+for (const [id, n] of Object.entries(NODES)) {
+  const g = el("g", { class: "node" }, svg);
+  el("rect", { x: n.x, y: n.y, width: n.w, height: n.h, rx: 8 }, g);
+  const small = n.w < 100;
+  el("text", { class: "t", x: n.x + n.w / 2, y: n.y + (n.h > 55 ? 28 : 22), "text-anchor": "middle" }, g).textContent = n.t;
+  el("text", { class: "s", x: n.x + n.w / 2, y: n.y + (n.h > 55 ? 48 : 40), "text-anchor": "middle" }, g).textContent = n.s;
+  if (small) g.querySelector(".t").style.fontSize = "13px";
+  nodeEls[id] = g;
+}
+const pulseLayer = el("g", {}, svg);
+function pointAt(e, d) {
+  for (let i = 1; i < e.p.length; i++) {
+    const [x0, y0] = e.p[i - 1], [x1, y1] = e.p[i], L = Math.hypot(x1 - x0, y1 - y0);
+    if (d <= L) return [x0 + (x1 - x0) * d / L, y0 + (y1 - y0) * d / L];
+    d -= L;
+  }
+  return e.p[e.p.length - 1];
+}
+
+/* ---------- แขน ---------- */
+const arm = document.getElementById("arm");
+for (let x = -50; x <= 300; x += 50) el("line", { class: "grid-l", x1: x, y1: -400, x2: x, y2: 0 }, arm);
+for (let z = 0; z <= 400; z += 50) el("line", { class: "grid-l", x1: -60, y1: -z, x2: 300, y2: -z }, arm);
+el("text", { class: "arm-note", x: 255, y: -6 }, arm).textContent = "ช่อง 50 mm";
+el("line", { class: "floor", x1: -60, y1: 0, x2: 300, y2: 0 }, arm);
+el("rect", { class: "base", x: -28, y: -14, width: 56, height: 14, rx: 3 }, arm);
+const planEl = el("polyline", { class: "plan" }, arm);
+const goalEl = el("circle", { class: "goal", r: 7 }, arm);
+const actEl = el("polyline", { class: "lnk-a" }, arm);
+const tgtEl = el("polyline", { class: "lnk-t" }, arm);
+const jointEls = [1, 2, 3].map(() => el("circle", { class: "jt", r: 5 }, arm));
+const armNote = el("text", { class: "arm-note", x: -54, y: -382 }, arm);
+const toPts = (P) => P.map(([r, z]) => `${r.toFixed(1)},${(-z).toFixed(1)}`).join(" ");
+function drawArm(qT, qA) {
+  const T = fk(qT), A = fk(qA);
+  tgtEl.setAttribute("points", toPts(T));
+  actEl.setAttribute("points", toPts(A));
+  jointEls.forEach((c, i) => { c.setAttribute("cx", T[i + 1][0]); c.setAttribute("cy", -T[i + 1][1]); });
+}
+function setPlan(traj) {
+  if (!traj) { planEl.setAttribute("points", ""); return; }
+  const pts = []; for (let k = 0; k <= 40; k++) pts.push(fk(traj(k / 40))[4]);
+  planEl.setAttribute("points", toPts(pts));
+}
+function setGoal(p) { goalEl.style.display = p ? "" : "none"; if (p) { goalEl.setAttribute("cx", p[0]); goalEl.setAttribute("cy", -p[1]); } }
+
+const NAMES = ["J1 ฐาน", "J2 ไหล่", "J3 ศอก", "J4 คอ"];
+const qBody = document.getElementById("qBody");
+const qCells = NAMES.map((n) => { const tr = document.createElement("tr"); tr.innerHTML = `<td>${n}</td><td class="c-t"></td><td class="c-a"></td>`; qBody.appendChild(tr); return tr.querySelectorAll("td"); });
+function setTable(qT, qA) {
+  const full = (q) => [0, ...q];
+  full(qT).forEach((v, i) => { qCells[i][1].textContent = v.toFixed(1) + "°"; });
+  full(qA).forEach((v, i) => { qCells[i][2].textContent = v.toFixed(1) + "°"; });
+}
+const voltBar = document.getElementById("voltBar"), voltV = document.getElementById("voltV");
+function setVolt(v) {
+  voltBar.style.width = Math.max(0, Math.min(100, v / 9 * 100)) + "%";
+  voltBar.style.background = v < 6 ? "var(--danger)" : "var(--ok)";
+  voltV.textContent = v.toFixed(1) + " V";
+}
+
+/* จังหวะ driver: รอบจริงแกว่ง 27–52 ms, ทุกรอบส่ง "ท่าในอีก 80 ms" */
+const tickWrap = document.getElementById("tickWrap"), tickG = document.getElementById("ticks");
+const TICKS = []; { let t = 0, seed = 7; while (t < 4000) { seed = (seed * 9301 + 49297) % 233280; t += 27 + 25 * seed / 233280; TICKS.push(t); } }
+function drawTicks(nowMs) {
+  tickG.textContent = "";
+  const px = 320 / 600, t0 = nowMs - 300;
+  el("text", { class: "tick-label", x: 2, y: 52 }, tickG).textContent = "รอบ driver (27–52 ms)";
+  el("text", { class: "tick-label", x: 200, y: 52 }, tickG).textContent = "→ ส่งท่าอีก 80 ms";
+  for (const t of TICKS) {
+    if (t < t0 || t > nowMs) continue;
+    const x = (t - t0) * px;
+    el("line", { class: "tick", x1: x, y1: 30, x2: x, y2: 40 }, tickG);
+    const x2 = x + 80 * px;
+    el("path", { class: "tick-ahead", d: `M${x},30 Q${(x + x2) / 2},${8} ${x2},30`, opacity: 0.25 + 0.75 * (t - t0) / 300 }, tickG);
+  }
+  el("line", { class: "tick-head", x1: 300 * px, y1: 4, x2: 300 * px, y2: 42 }, tickG);
+}
+
+/* ---------- สถานการณ์ ---------- */
+const B = (hex, label, hl) => ({ hex, label, hl });
+const PACKET = [B("FF", "หัว"), B("FF", "หัว"), B("09", "ID 9 ไหล่", 1), B("09", "ความยาว"), B("03", "WRITE"), B("2A", "addr 42"),
+  B("00", "raw สูง", 1), B("F9", "raw ต่ำ = 249", 1), B("00", "เวลา สูง"), B("50", "เวลา = 80 ms", 1), B("00", "ความเร็ว"), B("00", "ความเร็ว"), B("77", "checksum")];
+const S2 = { base: [20, 60, 40] };
+
+const SCN = [
+  { id: "ik", name: "ไปจุดด้วย IK", steps: [
+    { n: ["gui"], e: [], title: "ผู้ใช้สั่งไปจุด X Y Z",
+      text: "แท็บ Inverse Kinematics: X = 200, Y = 0, Z = 50 mm, φ = −90° (ปลายแขนชี้ลง) แล้วกด Go หน้าต่างไม่คุยกับ servo เอง ส่งคำสั่งต่อให้ Mover ผ่าน Driver ซึ่งล็อกกันชนกับ thread",
+      code: "qt_app.py → driver.do(lambda m: m.goto_xyz(200, 0, 50, −90))", arm: "start" },
+    { n: ["ik"], e: ["gui-ik"], title: "IK: ตำแหน่ง → มุมข้อต่อ",
+      text: "θ₁ = atan2(0, 200) = 0° · ถอยจากปลายแขนไปข้อมือ: rc = 200 − 50·cos(−90°) = 200.0, s = 50 − 50·sin(−90°) − 96.7 = 3.3 · กฎ cosine D = 0.430 → θ₃ = −64.5° · θ₂ = 27.3° · θ₄ = φ − θ₂ − θ₃ = −52.7° → มุม servo q = (0, 62.7, 64.5, 52.7)",
+      code: "kinematics.py · inverse_kinematics", arm: "start" },
+    { n: ["mover"], e: ["ik-mover"], title: "Mover วางแผนเส้นตรง",
+      text: "ปลายแขนวิ่งเส้นตรงจากท่า Standby (98.4, 166.7) ไป (200, 50): แบ่งทุก 1 mm ได้ 155 จุด แล้วทำ IK ทุกจุด เวลา T = 1.19 s ตามโปรไฟล์ min-jerk s(τ) = 10τ³ − 15τ⁴ + 6τ⁵ ออกตัวช้าและผ่อนก่อนถึง",
+      code: "motion.py · goto_xyz · min_jerk", arm: "plan" },
+    { n: ["driver"], e: ["mover-driver"], title: "Driver ทำงานทุกรอบ ~40 ms",
+      text: "แต่ละรอบ: เช็คไฟ 7.6 V ≥ 6 V และ servo ตอบครบ 4 ตัว → mover.step(dt ตามเวลาจริง) → peek(80 ms) = ท่าในอีก 80 ms รอบบน Windows แกว่ง 27–52 ms การส่งท่าล่วงหน้าทำให้ servo วิ่งความเร็วสม่ำเสมอ",
+      code: "driver.py · tick · Mover.peek", arm: "move", ticks: 1 },
+    { n: ["link"], e: ["driver-link"], title: "แปลงมุมเป็นตัวเลข servo (raw)",
+      text: "raw = center + dir × q × 4.092 แล้วบีบใน limit · ที่ปลายทาง: ฐาน 484 + 0 = 484 · ไหล่ 506 − 62.7 × 4.092 = 249 · ศอก 527 + 64.5 × 4.092 = 791 · คอ 522 − 52.7 × 4.092 = 306 · ถ้าข้อไหนกระโดดเกิน 20° ในคำสั่งสั้นกว่า 300 ms จะไม่ส่ง (กันบั๊ก)",
+      code: "config.py · q_to_raw · link.py · jump_too_big", arm: "move", ticks: 1 },
+    { n: ["scs"], e: ["link-scs"], title: "สร้าง packet SCS",
+      text: "คำสั่ง WRITE (0x03) เขียนที่ addr 42 ครั้งเดียว 6 byte = ตำแหน่ง + เวลา + ความเร็ว (0 = ใช้เวลาเป็นตัวกำหนด) · ตัวอย่างไหล่ ID 9 ที่ปลายทาง:",
+      code: "scs.py · make_packet · write_pos", arm: "move", bytes: 1, ticks: 1 },
+    { n: ["usb", "adapter", ...SERVOS], e: ["scs-usb", "usb-adapter", "adapter-bus"], title: "ส่งผ่านสายถึง servo",
+      text: "ส่ง 4 packet (ID 4, 9, 7, 2) ทาง USB COM11 → adapter → บัส servo 1 Mbps servo แต่ละตัววิ่งไปถึง raw ที่สั่งภายใน 80 ms แล้วรอบถัดไปก็ได้เป้าใหม่ที่ล่วงหน้าไปอีก 80 ms",
+      code: "link.py · DirectLink.send_q (ถือ lock บัส)", arm: "move", ticks: 1 },
+    { n: ["reader", "gui", "driver"], e: ["bus-adapter", "adapter-usb", "usb-reader", "reader-driver", "reader-gui"], fb: 1, title: "อ่านสถานะกลับทุก 100 ms",
+      text: "thread อ่าน addr 56..63 ของทุกข้อ = ตำแหน่ง ความเร็ว โหลด ไฟ อุณหภูมิ → q_actual และ volt · หน้าต่างวาดแขนจริง (ฟ้าโปร่ง) และตาราง Status · Driver ใช้เช็คความปลอดภัยทุกรอบ",
+      code: "link.py · _read_all → q_actual, volt, servo", arm: "move" },
+    { n: ["mover", "driver"], e: ["mover-driver"], title: "ถึงเป้า",
+      text: "ครบ T = 1.19 s Mover ส่งมุมเป้าให้ Driver (pop_finished) Driver รอแขนนิ่ง 0.4 s แล้วตรวจว่าต้องชดเชยแขนยวบไหม (ดูสถานการณ์ “ชดเชยแขนยวบ”)",
+      code: "motion.py · pop_finished → driver.py · _correction", arm: "goal" },
+  ] },
+  { id: "corr", name: "ชดเชยแขนยวบ", steps: [
+    { n: ["mover", "driver"], e: ["mover-driver"], title: "Mover ถึงเป้า → รอแขนนิ่ง",
+      text: "goto จบที่ไหล่ 20.0° (ศอก 60°, คอ 40°) Driver ยังไม่วัดทันที รอ 0.4 s ให้แขนนิ่งก่อน",
+      code: "config.py · CORR_WAIT_S = 0.4", sh: [20, 18.5] },
+    { n: ["reader", "driver"], e: ["bus-adapter", "adapter-usb", "usb-reader", "reader-driver"], fb: 1, title: "อ่านมุมจริง: ไหล่ยวบ",
+      text: "อ่านไหล่ได้ 18.5° → error = 20.0 − 18.5 = 1.5° · มากกว่า 0.5° (ยังไม่ถือว่าถึง) และไม่เกิน 5° (ไม่ได้ถูกขวางหรือไฟตก) → ชดเชย",
+      code: "driver.py · _correction · CORR_TOL = 0.5 · CORR_GIVE_UP = 5", sh: [20, 18.5], readSh: 1 },
+    { n: ["driver"], e: [], title: "คิด offset สะสม",
+      text: "offset = 0 + 0.8 × 1.5 = 1.2° → สั่งใหม่ 20.0 + 1.2 = 21.2° · offset สะสมทุกรอบ (แบบ integral) รวมไม่เกิน ±5° และไม่เกิน 3 รอบ",
+      code: "CORR_GAIN = 0.8 · CORR_MAX = 5 · CORR_ROUNDS = 3", sh: [21.2, 18.5] },
+    { n: ["mover", "driver"], e: ["driver-mover", "mover-driver"], title: "สั่งใหม่แบบนุ่ม",
+      text: "Driver เรียก Mover.goto_q(ไหล่ 21.2°) ใช้โปรไฟล์ min-jerk เหมือนคำสั่งปกติ จึงไม่กระชาก",
+      code: "motion.py · goto_q", sh: [21.2, 18.5] },
+    { n: ["link", "scs", "usb", "adapter", "s9"], e: ["driver-link", "link-scs", "scs-usb", "usb-adapter", "adapter-bus"], title: "ส่งไป servo",
+      text: "ทางเดิม: raw = 506 − 21.2 × 4.092 = 419 → packet → COM11 → servo ID 9 แขนยกขึ้นแต่ยังยวบอยู่บ้าง",
+      code: "config.py · q_to_raw → scs.py", sh: [21.2, "rise"] },
+    { n: ["reader", "driver"], e: ["bus-adapter", "adapter-usb", "usb-reader", "reader-driver"], fb: 1, title: "อ่านซ้ำ: ถึงเป้าแล้ว",
+      text: "รอนิ่ง 0.4 s อ่านได้ 19.7° → error = 0.3° ≤ 0.5° → จบ · Log: “ถึงเป้า (ชดเชย 1 รอบ, error สูงสุด 0.30°)”",
+      code: "driver.py · _correction", sh: [21.2, 19.7], readSh: 1 },
+  ] },
+  { id: "volt", name: "ไฟตก → หยุด", steps: [
+    { n: ["mover", "driver", "link"], e: ["mover-driver", "driver-link", "link-scs", "scs-usb", "usb-adapter", "adapter-bus"], title: "กำลังยื่นแขนไปหน้า",
+      text: "ผู้ใช้สั่งไป (250, 0, 150) φ = 0° ท่ายื่นไกล ไหล่และศอกต้องแบกน้ำหนักมาก ดึงกระแสจากแหล่งจ่ายมากขึ้น",
+      code: "motion.py · goto_xyz", arm3: "move", volt: 7.6 },
+    { n: ["reader", "driver"], e: ["bus-adapter", "adapter-usb", "usb-reader", "reader-driver"], fb: 1, title: "อ่านไฟได้ 5.8 V",
+      text: "ตัวอ่านทุก 100 ms ได้ไฟ servo 5.8 V (byte ที่ addr 62 หน่วย 0.1 V) ถ้าแหล่งจ่ายจ่ายกระแสไม่พอ ไฟจะตกตอนแขนยื่นไกล เคยวัดจริงได้ 5.9 V",
+      code: "link.py · _read_all → volt = d[6] / 10", arm3: "move", volt: "drop" },
+    { n: ["driver"], e: [], bad: ["driver"], title: "Driver ตัดสินหยุด",
+      text: "_safe(): 5.8 V < VOLT_MIN 6.0 V → หยุดทันทีในรอบนั้น ไม่ส่งท่าถัดไป",
+      code: "driver.py · _safe · _halt", arm3: "freeze", volt: 5.8 },
+    { n: ["link", "scs", "usb", "adapter", ...SERVOS], e: ["driver-link", "link-scs", "scs-usb", "usb-adapter", "adapter-bus"], bad: ["driver"], title: "ค้างที่ตำแหน่งจริง",
+      text: "link.stop(): อ่านตำแหน่งจริงทุกข้อแล้วสั่งเป็นเป้าด้วยเวลา 300 ms · torque ยังเปิด แขนจึงค้างท่าที่อยู่ ไม่ตกลงมา",
+      code: "link.py · stop → _hold_here · MIN_MOVE_MS = 300", arm3: "freeze", volt: 5.8 },
+    { n: ["mover", "gui"], e: ["driver-mover", "reader-gui"], bad: ["driver"], title: "ตั้งท่าใหม่ + บอกผู้ใช้",
+      text: "mover.reset(q_actual): ท่าที่สั่ง = มุมจริง ถ้ากดสั่งใหม่แขนจะไม่กระโดด · Log: “หยุด: ไฟ servo ต่ำ (5.8 V < 6.0 V)” → เช็คแหล่งจ่าย (ควรจ่ายได้ ≥ 3–5 A) ก่อนสั่งต่อ",
+      code: "motion.py · reset · driver.message", arm3: "freeze", volt: 5.8 },
+  ] },
+];
+
+/* ---------- state ---------- */
+let sc = 0, st = 0, stepStart = performance.now(), playing = !reduce, pulses = [];
+const DWELL = 5200;
+const tabsEl = document.getElementById("tabs"), stepsEl = document.getElementById("steps");
+SCN.forEach((s, i) => {
+  const b = document.createElement("button");
+  b.className = "tab"; b.type = "button"; b.setAttribute("role", "tab"); b.id = "tab-" + s.id; b.textContent = s.name;
+  b.addEventListener("click", () => go(i, 0));
+  tabsEl.appendChild(b);
+});
+function go(s, k) {
+  sc = s; st = (k + SCN[sc].steps.length) % SCN[sc].steps.length; stepStart = performance.now();
+  render();
+}
+function render() {
+  const S = SCN[sc], P = S.steps[st];
+  [...tabsEl.children].forEach((b, i) => b.setAttribute("aria-selected", i === sc));
+  for (const [id, g] of Object.entries(nodeEls)) {
+    g.classList.toggle("on", P.n.includes(id) && !P.fb && !(P.bad || []).includes(id));
+    g.classList.toggle("read", P.n.includes(id) && !!P.fb);
+    g.classList.toggle("bad", (P.bad || []).includes(id));
+  }
+  for (const [id, e] of Object.entries(edgeEls)) e.classList.toggle("on", P.e.includes(id));
+  pulseLayer.textContent = "";
+  pulses = reduce ? [] : P.e.flatMap((id) => {
+    const E = EDGES[id], n = Math.max(1, Math.round(E.len / 90));
+    return Array.from({ length: n }, (_, k) => ({ E, off: k / n, c: el("circle", { r: 4.5, class: "pulse" + (E.fb ? " fb" : "") }, pulseLayer) }));
+  });
+  document.getElementById("counter").textContent = `ขั้น ${st + 1} / ${S.steps.length}`;
+  document.getElementById("capTitle").textContent = P.title;
+  document.getElementById("capText").textContent = P.text;
+  document.getElementById("capCode").textContent = P.code;
+  const extra = document.getElementById("capExtra");
+  extra.innerHTML = P.bytes ? `<div class="bytes">${PACKET.map((b) => `<span class="byte${b.hl ? " hl" : ""}"><code>${b.hex}</code><small>${b.label}</small></span>`).join("")}</div>` : "";
+  stepsEl.textContent = "";
+  S.steps.forEach((x, i) => {
+    const li = document.createElement("li"), b = document.createElement("button");
+    b.type = "button"; b.innerHTML = `<span class="n">${i + 1}</span><span></span>`; b.lastChild.textContent = x.title;
+    if (i === st) b.setAttribute("aria-current", "step");
+    b.addEventListener("click", () => go(sc, i));
+    li.appendChild(b); stepsEl.appendChild(li);
+  });
+  tickWrap.hidden = !P.ticks;
+  document.getElementById("slow").textContent = (P.arm === "move" || P.arm3 === "move") ? "· ช้าลง 4 เท่า" : "";
+  frame(performance.now());
+}
+
+/* แขนตามสถานการณ์ — t = วินาทีตั้งแต่เริ่มขั้น */
+const T1 = 1.185 * 4, HOLD = 0.8, LAG = 0.1 * 4;
+function armFrame(P, t) {
+  const S = SCN[sc];
+  if (S.id === "ik") {
+    setGoal([200, 50]); setVolt(7.6);
+    if (P.arm === "start") { setPlan(null); return [STANDBY, STANDBY]; }
+    if (P.arm === "plan") { setPlan(TRAJ1); return [STANDBY, STANDBY]; }
+    if (P.arm === "goal") { setPlan(TRAJ1); return [GOAL1, GOAL1]; }
+    setPlan(TRAJ1);
+    const tt = reduce ? T1 : t % (T1 + HOLD);
+    return [TRAJ1(tt / T1), TRAJ1((tt - LAG) / T1)];
+  }
+  if (S.id === "corr") {
+    setGoal(null); setPlan(null); setVolt(7.6);
+    let [cmd, act] = P.sh;
+    if (act === "rise") act = 18.5 + 1.2 * minJerk(reduce ? 1 : t / 2.4);
+    const qT = [cmd, ...S2.base.slice(1)], qA = [act, ...S2.base.slice(1)];
+    armNote.textContent = `ไหล่: สั่ง ${cmd.toFixed(1)}° · จริง ${act.toFixed(1)}° (เป้า 20.0°)`;
+    return [qT, qA];
+  }
+  setGoal([250, 150]); setPlan(TRAJ3);
+  const v = P.volt === "drop" ? 7.6 - 1.8 * minJerk(reduce ? 1 : t / 1.5) : P.volt;
+  setVolt(v);
+  const T3 = 1.6 * 4, uStop = 0.62;
+  if (P.arm3 === "move") { const u = reduce ? uStop : Math.min(uStop, (t % (T3 * uStop + HOLD)) / T3); return [TRAJ3(u), TRAJ3(u - LAG / T3)]; }
+  const q = TRAJ3(uStop - LAG / T3); return [q, q];
+}
+function frame(now) {
+  const P = SCN[sc].steps[st], t = (now - stepStart) / 1000;
+  if (SCN[sc].id !== "corr") armNote.textContent = "";
+  const [qT, qA] = armFrame(P, t);
+  drawArm(qT, qA); setTable(qT, qA);
+  for (const p of pulses) {
+    const d = ((t * 120 / p.E.len + p.off) % 1) * p.E.len, [x, y] = pointAt(p.E, d);
+    p.c.setAttribute("cx", x); p.c.setAttribute("cy", y);
+  }
+  if (!tickWrap.hidden) drawTicks(reduce ? 600 : 600 + (t * 1000 / 4) % 3000);
+}
+function loop(now) {
+  if (playing && now - stepStart > DWELL) {
+    const S = SCN[sc];
+    if (st + 1 < S.steps.length) go(sc, st + 1); else go((sc + 1) % SCN.length, 0);
+  }
+  frame(now);
+  requestAnimationFrame(loop);
+}
+const playBtn = document.getElementById("play");
+const setPlay = (on) => { playing = on; playBtn.textContent = on ? "❚❚ หยุด" : "▶ เล่น"; stepStart = performance.now(); };
+playBtn.addEventListener("click", () => setPlay(!playing));
+document.getElementById("next").addEventListener("click", () => go(sc, st + 1));
+document.getElementById("prev").addEventListener("click", () => go(sc, st - 1));
+setPlay(playing);
+go(0, 0);
+requestAnimationFrame(loop);
+})();
+</script>
