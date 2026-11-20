@@ -17,7 +17,8 @@ import serial
 from PyQt6.QtCore import QLocale, Qt, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (QApplication, QCheckBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
-                             QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QSlider, QSplitter, QTableWidget,
+                             QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QScrollArea, QSlider, QSplitter,
+                             QTableWidget,
                              QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 import config
@@ -83,7 +84,7 @@ class MainWindow(QMainWindow):
         self.q_target = [0.0] * len(config.JOINTS)
         self.torque_on = True
         self.setWindowTitle("RobotArm 4DOF — Control GUI (USB adapter)")
-        self.resize(1400, 900)
+        avail = QApplication.primaryScreen().availableGeometry()   # จอโน้ตบุ๊ก/ขยาย 125–150% → ไม่ให้ล้นจอ
 
         if viewer is None:
             from viewer3d import Viewer3D            # import ช้า (VTK) — test ส่ง viewer ปลอมมาแทน
@@ -103,20 +104,33 @@ class MainWindow(QMainWindow):
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(view)
         split.addWidget(self.tabs)
-        split.setSizes([780, 620])
+        split.setSizes([760, 600])
+        split.setChildrenCollapsible(False)
         log, ll = theme.card("Log")
         ll.addWidget(self.log_view)
-        log.setMaximumHeight(170)
+        self.log_view.setMinimumHeight(48)
 
-        central = theme.Backdrop()                  # พื้นหลัง (sci-fi: ตาราง HUD)
+        bottom = QWidget()                           # แถว FK + log (ลากเส้นแบ่งปรับความสูงได้)
+        bl = QVBoxLayout(bottom)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setSpacing(10)
+        bl.addWidget(self._build_fk_box())
+        bl.addWidget(log, 1)
+        main = QSplitter(Qt.Orientation.Vertical)
+        main.addWidget(split)
+        main.addWidget(bottom)
+        main.setStretchFactor(0, 1)
+        main.setChildrenCollapsible(False)
+        central = QWidget()
         lay = QVBoxLayout(central)
         lay.setContentsMargins(12, 12, 12, 12)
         lay.setSpacing(10)
         lay.addWidget(self._build_toolbar())
-        lay.addWidget(split, stretch=1)
-        lay.addWidget(self._build_fk_box())
-        lay.addWidget(log)
+        lay.addWidget(main, stretch=1)
         self.setCentralWidget(central)
+        self.resize(min(1400, avail.width() - 40), min(900, avail.height() - 40))
+        low = bl.itemAt(0).widget().sizeHint().height() + 120             # แถวล่างสูงพอดีเนื้อหา ที่เหลือให้ 3D/แท็บ
+        main.setSizes([max(200, self.height() - 100 - low), low])
         QShortcut(QKeySequence("Space"), self, activated=self.stop)
 
         self._use_link(link or SimLink())
@@ -142,20 +156,18 @@ class MainWindow(QMainWindow):
 
         title = QVBoxLayout()
         title.setSpacing(0)
-        title.addWidget(theme.glow(theme.label("RobotArm 4DOF", "app")))
-        title.addWidget(theme.label(f"Port {config.DIRECT_PORT} · USB adapter → Feetech SCS15", "hint"))
-        frame = theme.Card()
+        title.addWidget(theme.label("RobotArm 4DOF", "app"))
+        title.addWidget(theme.label(f"Port {config.DIRECT_PORT} · USB adapter", "hint"))
+        frame = QFrame()
+        frame.setObjectName("card")
         bar = QHBoxLayout(frame)
-        bar.setContentsMargins(16, 10, 12, 10)
+        bar.setContentsMargins(14, 8, 10, 8)
         bar.setSpacing(10)
         bar.addLayout(title)
-        bar.addSpacing(18)
+        bar.addSpacing(12)
         bar.addWidget(self.connect_btn)
         bar.addWidget(self.conn_label)
         bar.addStretch(1)
-        self.clock = theme.label(theme.clock_text(), "clock")   # นาฬิกาแบบหน้าจอระบบ (เฉพาะ sci-fi)
-        bar.addWidget(self.clock)
-        bar.addSpacing(8)
         for w in (standby, self.torque_btn, stop):
             bar.addWidget(w)
         return frame
@@ -179,7 +191,16 @@ class MainWindow(QMainWindow):
         for x in widgets:
             lay.addWidget(x) if isinstance(x, QWidget) else lay.addLayout(x)
         lay.addStretch(1)
-        return w
+        return MainWindow._scroll(w)
+
+    @staticmethod
+    def _scroll(w):
+        """หน้าแท็บเลื่อนขึ้นลงได้ — จอเตี้ยไม่บีบปุ่มจนทับกัน"""
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        area.setWidget(w)
+        return area
 
     def _build_joint_tab(self):
         frame, lay = theme.card("ท่า Target ของแต่ละข้อ", "ลาก slider / พิมพ์ตัวเลข → แขนตามทันที")
@@ -301,7 +322,7 @@ class MainWindow(QMainWindow):
         split.addWidget(result)
         split.setSizes([300, 330])
         w = self._page(target, split)
-        w.layout().takeAt(w.layout().count() - 1)    # ไม่เว้นท้าย: ให้รูป + ผลลัพธ์ยืดเต็ม
+        w.widget().layout().takeAt(w.widget().layout().count() - 1)    # ไม่เว้นท้าย: ให้รูป + ผลลัพธ์ยืดเต็ม
         return w
 
     def _build_status_tab(self):
@@ -335,9 +356,9 @@ class MainWindow(QMainWindow):
         grid.setHorizontalSpacing(18)
         self.fk_values = {}
         for k, (name, unit) in enumerate([("X", "mm"), ("Y", "mm"), ("Z", "mm"), ("φ", "°"), ("Yaw", "°")]):
-            val = theme.glow(theme.label("0.0", "tile-value"), radius=14)
+            val = theme.label("0.0", "tile-value")
             val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            val.setMinimumWidth(84)
+            val.setMinimumWidth(64)
             grid.addWidget(theme.label(f"{name}  ({unit})", "tile-name"), 0, k, Qt.AlignmentFlag.AlignRight)
             grid.addWidget(val, 1, k)
             self.fk_values[name] = val
@@ -351,17 +372,18 @@ class MainWindow(QMainWindow):
         self.fk_table.verticalHeader().setVisible(False)
         self.fk_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.fk_table.setShowGrid(False)
-        self.fk_table.setFixedSize(4 * 70 + 4, 4 * 23 + 4)
+        self.fk_table.setFixedSize(4 * 62 + 4, 4 * 22 + 4)
         self.fk_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.fk_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         for c in range(4):
-            self.fk_table.setColumnWidth(c, 70)
-            self.fk_table.setRowHeight(c, 23)
+            self.fk_table.setColumnWidth(c, 62)
+            self.fk_table.setRowHeight(c, 22)
         ml.addWidget(self.fk_table)
 
         sing, sl = theme.card("Singularity")
         self.sing_label = QLabel()                    # ผลตรวจ singularity ของท่า Target + หลักฐาน (singularity.py)
-        self.sing_label.setFont(theme.mono(9))
+        self.sing_label.setFont(theme.mono(8))
+        self.sing_label.setWordWrap(True)
         self.sing_label.setToolTip("|det J| = r·a2·a3·|sin θ3| — คำนวณ 2 ทาง (ตัวเลข/สูตร) ต้องเท่ากัน\n"
                                    "= 0 เมื่อปลายแขนอยู่บนแกนฐาน (r = 0) หรือแขนเหยียด/พับสุด (θ3 = 0°/180°)")
         sl.addWidget(self.sing_label)
@@ -555,7 +577,6 @@ class MainWindow(QMainWindow):
     # ================= อัปเดตทุก 50 ms =================
     def poll(self):
         link, m = self.link, self.driver.mover
-        self.clock.setText(theme.clock_text())
         if self.driver.message:
             self.log(self.driver.message)
             self.driver.message = ""
