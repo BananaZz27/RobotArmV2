@@ -1,6 +1,6 @@
 # วนลูป A ⇄ B (auto_cycle.py) — state machine ล้วน ๆ + บันทึก/อ่านไฟล์จุด
 import pytest
-from auto_cycle import AutoCycle, load_points, save_points
+from auto_cycle import AutoCycle, load_dwells, load_points, save_points
 
 A, B = [0.0, 10.0, 20.0, 30.0], [40.0, 0.0, 60.0, -10.0]
 
@@ -100,3 +100,23 @@ def test_approaching_only_until_first_point():
     assert c.approaching                              # วิ่งไป A ครั้งแรก
     _arrive(c, 1, A)
     assert not c.approaching
+
+
+def test_dwell_per_point():
+    c = AutoCycle([A, B], dwell=9, dwells=[0.0, 2.0])
+    c.start(0)
+    _arrive(c, 1, A)
+    assert c.update(1.0, False, A) == B               # A รอ 0 s → ไปต่อทันที
+    _arrive(c, 2, B)
+    assert c.update(3.9, False, B) is None            # B รอ 2 s ยังไม่ครบ
+    assert c.update(4.0, False, B) == A
+    assert AutoCycle([A, B], dwell=0.7).dwell_at(1) == 0.7   # ไม่ได้ตั้ง → ค่าเริ่มต้น
+
+
+def test_dwells_file_roundtrip(tmp_path):
+    f = tmp_path / "pts.json"
+    assert load_dwells(f) == []
+    save_points([A, B], f, [0.5, 2.0])
+    assert load_points(f) == [A, B] and load_dwells(f) == [0.5, 2.0]
+    save_points([A, B], f)                            # ไฟล์ไม่มีเวลารอ → []
+    assert load_dwells(f) == []

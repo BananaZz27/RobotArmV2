@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox,
 
 import config
 import theme
-from auto_cycle import MAX_POINTS, POINTS_FILE, AutoCycle, load_points, save_points
+from auto_cycle import MAX_POINTS, POINTS_FILE, AutoCycle, load_dwells, load_points, save_points
 from driver import Driver
 from ik_explain import TIP_MAX, diagnose, fmt_ranges
 from ik_sketch import IKSketch
@@ -501,6 +501,9 @@ class MainWindow(QMainWindow):
     def _build_auto_tab(self):
         """แท็บ Auto: สอนจุด A, B, C … → ตั้งความเร็ว/เวลารอ/จำนวนรอบ → Start (แบบเครื่องจักรในโรงงาน)"""
         self.auto = AutoCycle(load_points(self.auto_file))
+        saved = load_dwells(self.auto_file)
+        self.auto.dwells = [saved[k] if k < len(saved) and saved[k] is not None else self.auto.dwell
+                            for k in range(len(self.auto.points))]     # เวลารอแยกแต่ละจุด (ยาวเท่าจำนวนจุดเสมอ)
         self._auto_seen = "idle"
 
         pts, pl = theme.card("จุดทำงาน", "ตั้งท่าด้วย Joint / Jog / IK (หรือปลด Torque แล้วจับแขนวาง) → กดบันทึก")
@@ -520,12 +523,10 @@ class MainWindow(QMainWindow):
         self.auto_mode.addItem("เส้นตรง (ปลายแขนวิ่งตรง)", "line")
         self.auto_speed = _spin(10, config.V_JOINT, 10, " °/s", 60, decimals=0)
         self.auto_vcart = _spin(10, config.V_CART, 10, " mm/s", 100, decimals=0)
-        self.auto_dwell = _spin(0, 30, 0.1, " s", 0.5)
         self.auto_cycles = QSpinBox(minimum=0, maximum=100000, value=0)
         self.auto_cycles.setSpecialValueText("∞ ไม่จำกัด")
-        for k, (name, w) in enumerate((("การเคลื่อนที่", self.auto_mode), ("รอที่จุด", self.auto_dwell),
-                                        ("ความเร็วข้อต่อ", self.auto_speed), ("ความเร็วเส้นตรง", self.auto_vcart),
-                                        ("จำนวนรอบ", self.auto_cycles))):
+        for k, (name, w) in enumerate((("การเคลื่อนที่", self.auto_mode), ("จำนวนรอบ", self.auto_cycles),
+                                        ("ความเร็วข้อต่อ", self.auto_speed), ("ความเร็วเส้นตรง", self.auto_vcart))):
             form.addWidget(theme.label(name, "name"), k // 2, (k % 2) * 2)
             form.addWidget(w, k // 2, (k % 2) * 2 + 1)
         sl.addLayout(form)
@@ -573,7 +574,7 @@ class MainWindow(QMainWindow):
             w = self.auto_grid.takeAt(0).widget()
             if w is not None:
                 w.deleteLater()
-        self.auto_labels = []
+        self.auto_labels, self.auto_dwell_spins = [], []
         n = len(self.auto.points)
         for k in range(n):
             letter = theme.label(AutoCycle.name(k), "tile-value")
@@ -586,7 +587,12 @@ class MainWindow(QMainWindow):
             rec.clicked.connect(lambda _=False, k=k: self.auto_record(k))
             go.clicked.connect(lambda _=False, k=k: self.auto_goto(k))
             rm.clicked.connect(lambda _=False, k=k: self.auto_remove(k))
-            for col, w in enumerate((letter, info, rec, go, rm)):
+            wait = _spin(0, 60, 0.1, " s", self.auto.dwell_at(k))      # เวลารอที่จุดนี้
+            wait.setPrefix("รอ ")
+            wait.setToolTip(f"หยุดรอที่จุด {AutoCycle.name(k)} ก่อนไปจุดถัดไป (เช่นเวลาหยิบ/วางชิ้นงาน)")
+            wait.valueChanged.connect(lambda v, k=k: self.auto_set_dwell(k, v))
+            self.auto_dwell_spins.append(wait)
+            for col, w in enumerate((letter, info, wait, rec, go, rm)):
                 self.auto_grid.addWidget(w, k, col)
             self.auto_labels.append(info)
         self.auto_add_btn.setEnabled(n < MAX_POINTS)
@@ -616,7 +622,7 @@ class MainWindow(QMainWindow):
 
     def _auto_save(self):
         try:
-            save_points(self.auto.points, self.auto_file)
+            save_points(self.auto.points, self.auto_file, self.auto.dwells)
         except OSError as e:
             self.log(f"⚠ บันทึกลงไฟล์ไม่ได้ (ใช้ได้จนปิดโปรแกรม): {e}")
 
@@ -644,6 +650,7 @@ class MainWindow(QMainWindow):
         if self._auto_busy() or len(self.auto.points) >= MAX_POINTS:
             return
         self.auto.points.append(None)
+        self.auto.dwells.append(self.auto.dwells[-1] if self.auto.dwells else self.auto.dwell)   # จุดใหม่รอเท่าจุดก่อนหน้า
         self._auto_rows()
         self.auto_record(len(self.auto.points) - 1)
 
@@ -651,9 +658,17 @@ class MainWindow(QMainWindow):
         if self._auto_busy() or len(self.auto.points) <= 2:
             return
         del self.auto.points[k]
+        del self.auto.dwells[k]
         self._auto_save()
         self._auto_rows()
         self.log(f"✕ ลบจุด — ลำดับงานตอนนี้: {self._auto_sequence()}")
+
+    def auto_set_dwell(self, k, seconds):
+        """ตั้งเวลารอที่จุด k (แก้ระหว่างวิ่งได้ — มีผลตั้งแต่ครั้งถัดไปที่ถึงจุดนั้น)"""
+        self.auto.dwells[k] = round(float(seconds), 1)
+        if self.auto_dwell_spins[k].value() != self.auto.dwells[k]:
+            _set_quiet(self.auto_dwell_spins[k], self.auto.dwells[k])
+        self._auto_save()
 
     def _auto_sequence(self):
         return " → ".join(AutoCycle.name(k) for k in range(len(self.auto.points))) + " → A"
@@ -683,7 +698,8 @@ class MainWindow(QMainWindow):
         self._auto_seen = "move"
         line = self.auto_mode.currentData() == "line"
         speed = f"เส้นตรง {self.auto_vcart.value():.0f} mm/s" if line else f"{self.auto_speed.value():.0f} °/s"
-        self.log(f"▶ Auto เริ่ม: {seq} · {speed} · รอ {self.auto_dwell.value():.1f} s · "
+        self.log(f"▶ Auto เริ่ม: {seq} · {speed} · รอ "
+                 + " / ".join(f"{AutoCycle.name(k)} {self.auto.dwell_at(k):.1f}" for k in range(len(self.auto.points))) + " s · "
                  + (f"{self.auto.cycles} รอบ" if self.auto.cycles else "ไม่จำกัดรอบ")
                  + " — กด STOP / Space เพื่อหยุด")
         self._auto_send(first)
@@ -709,7 +725,6 @@ class MainWindow(QMainWindow):
         """เรียกทุก 50 ms: แขนถึงจุดแล้ว → รอ → สั่งจุดถัดไป"""
         a = self.auto
         if a.running:
-            a.dwell = self.auto_dwell.value()
             m = self.driver.mover
             nxt = a.update(now, m.busy, list(m.q))
             if nxt is not None:

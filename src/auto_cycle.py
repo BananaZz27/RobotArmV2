@@ -17,7 +17,8 @@ MAX_POINTS = 8          # จุดสูงสุดในลำดับงา
 class AutoCycle:
     points: list                         # [[q1..q4], ...] — จุด A, B, C … (เรียงตามลำดับที่วิ่ง)
     speed: float = 60.0                  # ความเร็วข้อต่อสูงสุด (°/s)
-    dwell: float = 0.5                   # หยุดรอที่แต่ละจุด (s) — เช่นเวลาหยิบ/วางชิ้นงาน
+    dwell: float = 0.5                   # หยุดรอที่จุด (s) ค่าเริ่มต้น — ใช้เมื่อจุดนั้นไม่ได้ตั้งเวลาเอง
+    dwells: list = field(default_factory=list)   # เวลารอแยกแต่ละจุด (s) เช่น A 0.5, B 2.0 (หยิบ/วางชิ้นงาน)
     cycles: int = 0                      # จำนวนรอบ (0 = ไม่จำกัด จนกด Stop)
     running: bool = False
     phase: str = "idle"                  # idle | move | dwell | done | stopped
@@ -67,13 +68,17 @@ class AutoCycle:
                         self.running, self.phase = False, "done"
                         return None
                 self._cycle_start = now
-            self.phase, self._dwell_end = "dwell", now + self.dwell
+            self.phase, self._dwell_end = "dwell", now + self.dwell_at(self.index)
             return None
         if self.phase == "dwell" and now >= self._dwell_end:
             self.index = (self.index + 1) % len(self.points)
             self.phase = "move"
             return self.points[self.index]
         return None
+
+    def dwell_at(self, i):
+        """เวลารอที่จุด i (ไม่ได้ตั้ง = ค่าเริ่มต้น dwell)"""
+        return self.dwells[i] if i < len(self.dwells) and self.dwells[i] is not None else self.dwell
 
     @staticmethod
     def name(i):
@@ -103,5 +108,15 @@ def load_points(path=POINTS_FILE):
         return [None, None]
 
 
-def save_points(points, path=POINTS_FILE):
-    Path(path).write_text(json.dumps({"points": points}, indent=1), encoding="utf-8")
+def save_points(points, path=POINTS_FILE, dwells=None):
+    data = {"points": points} if dwells is None else {"points": points, "dwells": dwells}
+    Path(path).write_text(json.dumps(data, indent=1), encoding="utf-8")
+
+
+def load_dwells(path=POINTS_FILE):
+    """เวลารอแยกแต่ละจุดที่บันทึกไว้ → [s, ...] (ไม่มี/อ่านไม่ได้ = [] → ใช้ค่าเริ่มต้น)"""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        return [None if v is None else max(0.0, float(v)) for v in data.get("dwells", [])][:MAX_POINTS]
+    except (OSError, ValueError, TypeError, AttributeError):
+        return []
