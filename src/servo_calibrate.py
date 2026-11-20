@@ -25,14 +25,13 @@ LIMIT_MARGIN = 10      # หด limit เข้ามาจากจุดที
 
 
 def pick_joints(name):
-    """'j1'..'j5' หรือ 'all' (เฉพาะข้อที่ต่ออยู่) → list ของ joint dict"""
-    used = [j for j in config.JOINTS if j["used"]]
+    """'j1'..'j4' หรือ 'all' → list ของ joint dict"""
     if name == "all":
-        return used
+        return list(config.JOINTS)
     for i, j in enumerate(config.JOINTS):
-        if name == f"j{i + 1}" and j["used"]:
+        if name == f"j{i + 1}":
             return [j]
-    sys.exit(f"ไม่รู้จักข้อ '{name}' — ใช้ j1..j{len(config.JOINTS)} (ที่ต่ออยู่) หรือ all")
+    sys.exit(f"ไม่รู้จักข้อ '{name}' — ใช้ j1..j{len(config.JOINTS)} หรือ all")
 
 
 def read_all(bus, joints):
@@ -108,7 +107,7 @@ def save_standby(q, py_path=CONFIG_PY):
     """เขียนท่า Standby ลงบรรทัด STANDBY_Q ใน config.py (ข้อไหนเกิน limit / nan → ValueError ไม่เขียนอะไรเลย)"""
     q = [round(float(v), 1) for v in q]
     for i, (j, v) in enumerate(zip(config.JOINTS, q)):
-        if j["used"] and not config.Q_MIN[i] <= v <= config.Q_MAX[i]:      # nan ก็ไม่ผ่านเงื่อนไขนี้
+        if not config.Q_MIN[i] <= v <= config.Q_MAX[i]:      # nan ก็ไม่ผ่านเงื่อนไขนี้
             raise ValueError(f"{j['name']} = {v}° นอกช่วง {config.Q_MIN[i]:.1f}…{config.Q_MAX[i]:.1f}°")
     text = Path(py_path).read_text(encoding="utf-8")
     text, n = re.subn(r"^STANDBY_Q = \[[^\]]*\]", f"STANDBY_Q = {q}", text, flags=re.M)

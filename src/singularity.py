@@ -5,7 +5,7 @@
 #
 # พิสูจน์สูตรปิด: แยก p เป็น 2 ชั้น
 #   1) ฐาน: (x, y) = (r cos θ1, r sin θ1)  →  det ∂(x,y)/∂(θ1,r) = r
-#   2) แขนระนาบ 3 ข้อ (θ2, θ3, θ4) → (r, z, φ)  →  det = a2 · a3 · sin θ3   (สูตรแขนระนาบ 3R, d5 ตัดกันหาย)
+#   2) แขนระนาบ 3 ข้อ (θ2, θ3, θ4) → (r, z, φ)  →  det = a2 · a3 · sin θ3   (สูตรแขนระนาบ 3R, a4 ตัดกันหาย)
 #   คูณกัน:  |det J| = r · a2 · a3 · |sin θ3|
 # ⇒ singularity มี 2 แบบ:
 #   • r = 0       ปลายแขนอยู่บนแกนฐาน  → หมุนฐานแล้วปลายแขนไม่ขยับ (เสีย 1 ทิศ)
@@ -29,10 +29,10 @@ def _pose(q):
 
 
 def jacobian(q):
-    """J 4×4 = ∂(x, y, z, φ)/∂(θ1..θ4) [mm/rad, rad/rad] ด้วย central difference"""
+    """J 4×4 = ∂(x, y, z, φ)/∂(q1..q4) [mm/rad, rad/rad] ด้วย central difference (|dθ/dq| = 1 → |det| เท่ากับเทียบ θ)"""
     J = np.zeros((4, 4))
     for k in range(4):
-        dq = [0.0] * 5
+        dq = [0.0] * 4
         dq[k] = STEP_DEG
         plus = _pose([a + b for a, b in zip(q, dq)])
         minus = _pose([a - b for a, b in zip(q, dq)])

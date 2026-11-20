@@ -4,7 +4,7 @@
 #  ┌ [Connect COM11] ● สถานะ ──────────────────────── [Torque OFF] [■ STOP (Space)] ┐
 #  │ ┌──────── 3D ────────┐ ┌ แท็บ: Joint | Inverse Kinematics | Status ┐          │
 #  │ └────────────────────┘ └───────────────────────────────────────────┘          │
-#  │ Forward Kinematics (ท่า Target): X Y Z φ Yaw + T⁰₅                            │
+#  │ Forward Kinematics (ท่า Target): X Y Z φ Yaw + T⁰₄                            │
 #  │ Log                                                                           │
 #  └───────────────────────────────────────────────────────────────────────────────┘
 import math
@@ -27,7 +27,7 @@ from motion import Mover, clamp_q
 from singularity import analyze, report
 from servo_calibrate import save_standby
 
-USED = [i for i, j in enumerate(config.JOINTS) if j["used"]]
+USED = range(len(config.JOINTS))     # ทุกข้อ (ฐาน ไหล่ ศอก คอ)
 SLIDER_SCALE = 10      # slider เป็น int → ×10 ให้ละเอียด 0.1°
 MONO = QFont("Consolas")
 
@@ -51,7 +51,7 @@ class MainWindow(QMainWindow):
         self.connect_fn = connect_fn or (lambda: DirectLink(config.DIRECT_PORT))
         self.save_standby = save_standby_fn          # test ส่งตัวปลอมมา ไม่เขียน config.py จริง
         self.link, self.driver = None, None
-        self.q_target = [0.0] * 5
+        self.q_target = [0.0] * len(config.JOINTS)
         self.torque_on = True
         self.setWindowTitle("RobotArm 4DOF — Control GUI (USB adapter)")
         self.resize(1400, 900)
@@ -132,7 +132,7 @@ class MainWindow(QMainWindow):
         grid.setColumnStretch(1, 1)
 
         zero = QPushButton("Zero (ท่าตั้งตรง)")
-        zero.clicked.connect(lambda: (self.set_target([0.0] * 5), self.send()))
+        zero.clicked.connect(lambda: (self.set_target([0.0] * len(config.JOINTS)), self.send()))
         pin = QPushButton("📌 ตั้งท่านี้เป็น Standby")
         pin.setToolTip("บันทึกท่า Target ตอนนี้ลง config.py — กด Connect ครั้งต่อไปแขนจะไปท่านี้เอง")
         pin.clicked.connect(self.set_standby_here)
@@ -140,8 +140,7 @@ class MainWindow(QMainWindow):
         bar.addWidget(pin)
         bar.addStretch(1)
         bar.addWidget(zero)
-        hint = QLabel("ลาก slider / พิมพ์ตัวเลข → แขนตามทันที · สีส้มใน 3D = Target, สีฟ้าโปร่ง = ท่าจริง\n"
-                      "J5 หัวถอดแล้ว")
+        hint = QLabel("ลาก slider / พิมพ์ตัวเลข → แขนตามทันที · สีส้มใน 3D = Target, สีฟ้าโปร่ง = ท่าจริง")
         hint.setStyleSheet("color:#666")
         w = QWidget()
         lay = QVBoxLayout(w)
@@ -194,7 +193,7 @@ class MainWindow(QMainWindow):
         self.driver.do(lambda m: m.release())
 
     def _build_ik_tab(self):
-        reach = config.D1 + config.A2 + config.A3 + config.D5
+        reach = config.D1 + config.A2 + config.A3 + config.A4
         self.ik_x = _spin(-reach, reach, 5, " mm", 110)
         self.ik_y = _spin(-reach, reach, 5, " mm", 10)
         self.ik_z = _spin(-reach / 2, reach, 5, " mm", 350)
@@ -269,7 +268,7 @@ class MainWindow(QMainWindow):
         lay = QHBoxLayout(box)
         lay.addLayout(grid)
         lay.addSpacing(12)
-        lay.addWidget(QLabel("T⁰₅ ="))
+        lay.addWidget(QLabel("T⁰₄ ="))
         lay.addWidget(self.fk_table)
         lay.addSpacing(12)
         self.sing_label = QLabel()                    # ผลตรวจ singularity ของท่า Target + หลักฐาน (singularity.py)
@@ -391,7 +390,7 @@ class MainWindow(QMainWindow):
         if self.link:
             self.link.close()
         self.link = link
-        q0 = link.q_actual if link.q_actual is not None else [0.0] * 5
+        q0 = link.q_actual if link.q_actual is not None else [0.0] * len(config.JOINTS)
         self.driver = Driver(link, Mover(q0))
         self.driver.correct = self.correct_box.isChecked()
         self.driver.start()

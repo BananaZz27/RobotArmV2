@@ -22,9 +22,8 @@ def min_jerk(tau):
 
 
 def clamp_q(q):
-    """บีบทุกข้อใน limit · ข้อที่ไม่ได้ต่อ (J5) = 0"""
-    return [min(max(v, config.Q_MIN[i]), config.Q_MAX[i]) if j["used"] else 0.0
-            for i, (j, v) in enumerate(zip(config.JOINTS, q))]
+    """บีบทุกข้อใน limit"""
+    return [min(max(v, config.Q_MIN[i]), config.Q_MAX[i]) for i, v in enumerate(q)]
 
 
 class Mover:

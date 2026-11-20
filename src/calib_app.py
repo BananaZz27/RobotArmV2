@@ -211,7 +211,7 @@ def main():
     except serial.SerialException as e:
         messagebox.showerror("เปิดพอร์ตไม่ได้", f"{config.DIRECT_PORT}: {e}\nปิดโปรแกรมอื่นที่ใช้พอร์ตอยู่หรือยัง?")
         return
-    reader = BusReader(ScsBus(ser), [j for j in config.JOINTS if j["used"]])
+    reader = BusReader(ScsBus(ser), config.JOINTS)
     root = tk.Tk()
     CalibApp(root, reader)
 

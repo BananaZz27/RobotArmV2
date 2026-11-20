@@ -34,9 +34,9 @@ text{font-family:'Sarabun','Noto Sans Thai','Leelawadee UI','Tahoma',sans-serif}
 <rect class="box" x="20" y="262" width="640" height="204" rx="10" stroke-width="0.5"/>
 <text class="tb" x="36" y="288">พิสูจน์: ปลายแขน p = (x, y, z, φ) ใช้ 4 ข้อ (θ1…θ4) → Jacobian J = ∂p/∂θ เป็น 4×4</text>
 <text xml:space="preserve" class="mono" x="36" y="316">1) ฐาน      x = r·cos θ1,  y = r·sin θ1          → det ∂(x,y)/∂(θ1,r)    = r</text>
-<text xml:space="preserve" class="mono" x="36" y="340">2) แขนระนาบ  r = a2·c2 + a3·c23 + d5·c234        → det ∂(r,z,φ)/∂(θ2,θ3,θ4)</text>
-<text xml:space="preserve" class="mono" x="36" y="360">             z = d1 + a2·s2 + a3·s23 + d5·s234      = a2·a3·sin θ3  (d5 ตัดกันหาย)</text>
-<text xml:space="preserve" class="mono" x="36" y="380">             φ = θ2 + θ3 + θ4 − 90°</text>
+<text xml:space="preserve" class="mono" x="36" y="340">2) แขนระนาบ  r = a2·c2 + a3·c23 + a4·c234        → det ∂(r,z,φ)/∂(θ2,θ3,θ4)</text>
+<text xml:space="preserve" class="mono" x="36" y="360">             z = d1 + a2·s2 + a3·s23 + a4·s234      = a2·a3·sin θ3  (a4 ตัดกันหาย)</text>
+<text xml:space="preserve" class="mono" x="36" y="380">             φ = θ2 + θ3 + θ4</text>
 <text class="tb" x="36" y="410">⇒ |det J| = r · a2 · a3 · |sin θ3|     = 0 เมื่อ r = 0 หรือ sin θ3 = 0</text>
 <text class="ts" x="36" y="434">หลักฐาน: โปรแกรมคิด J เชิงตัวเลข (ขยับทีละข้อ 0.001°) แล้วหา det → เท่ากับสูตรทุกท่า (test สุ่ม 300 ท่า)</text>
 <text class="ts" x="36" y="454">เตือนเมื่อ r &lt; 20 mm หรือศอกห่างจาก 0°/180° น้อยกว่า 10° · jog ปลายแขนหยุดก่อนเข้าใกล้ (ถอยออกได้)</text>

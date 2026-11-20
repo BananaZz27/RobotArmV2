@@ -9,7 +9,7 @@
 [Port COM11][Connect] ● Connected 7.8 V                     [Torque OFF] [■ STOP (Space)]
 ┌────────── 3D (ส้ม = Target, ฟ้าโปร่ง = จริง) ──────────┐ ┌ Joint | Inverse Kinematics | Status ┐
 └───────────────────────────────────────────────────────┘ └──────────────────────────────────────┘
-Forward Kinematics (ท่า Target): X Y Z φ Yaw + T⁰₅            Log
+Forward Kinematics (ท่า Target): X Y Z φ Yaw + T⁰₄            Log
 ```
 
 - **เปิด:** `RobotArm.bat` → โปรแกรม**ต่อแขนเอง**แล้ววิ่งไป**ท่า Standby** เอง (ต่อไม่ได้ = แขนจำลองไปท่า Standby แทน, กด Connect ลองใหม่ได้) (60 °/s, เช็คไฟ ≥ 6 V + servo ครบ 4 ตัวก่อน, STOP/Space หยุดได้)
