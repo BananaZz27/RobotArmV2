@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox,
 
 import config
 import theme
-from auto_cycle import MAX_POINTS, POINTS_FILE, AutoCycle, load_dwells, load_points, save_points
+from auto_cycle import DEMO, MAX_POINTS, POINTS_FILE, AutoCycle, load_dwells, load_points, save_points
 from driver import Driver
 from ik_explain import TIP_MAX, diagnose, fmt_ranges
 from ik_sketch import IKSketch
@@ -512,7 +512,12 @@ class MainWindow(QMainWindow):
         pl.addLayout(self.auto_grid)
         self.auto_add_btn = theme.button("＋ เพิ่มจุด", "ghost", f"เพิ่มจุดถัดไปจากท่า Target ตอนนี้ (สูงสุด {MAX_POINTS} จุด)")
         self.auto_add_btn.clicked.connect(self.auto_add)
-        pl.addWidget(self.auto_add_btn)
+        demo = theme.button("✨ ท่าตัวอย่าง A–G", tip="หยิบชิ้นงานทางซ้าย → วางทางขวา (แทนที่จุดเดิม)")
+        demo.clicked.connect(lambda: self.auto_load_demo())
+        row = QHBoxLayout()
+        row.addWidget(self.auto_add_btn, 1)
+        row.addWidget(demo)
+        pl.addLayout(row)
 
         setting, sl = theme.card("ตั้งค่า")
         form = QGridLayout()
@@ -573,6 +578,7 @@ class MainWindow(QMainWindow):
         while self.auto_grid.count():
             w = self.auto_grid.takeAt(0).widget()
             if w is not None:
+                w.setParent(None)                    # เอาออกจากหน้าต่างทันที (deleteLater ลบทีหลัง → แถวเก่าค้างทับ)
                 w.deleteLater()
         self.auto_labels, self.auto_dwell_spins = [], []
         n = len(self.auto.points)
@@ -653,6 +659,22 @@ class MainWindow(QMainWindow):
         self.auto.dwells.append(self.auto.dwells[-1] if self.auto.dwells else self.auto.dwell)   # จุดใหม่รอเท่าจุดก่อนหน้า
         self._auto_rows()
         self.auto_record(len(self.auto.points) - 1)
+
+    def auto_load_demo(self, ask=True):
+        """ใส่ท่าตัวอย่าง A–G (auto_cycle.DEMO) แทนจุดเดิม — ถามก่อนถ้ามีจุดที่บันทึกไว้"""
+        if self._auto_busy():
+            return
+        saved = sum(q is not None for q in self.auto.points)
+        if ask and saved and QMessageBox.question(
+                self, "ท่าตัวอย่าง A–G", f"แทนที่จุดที่บันทึกไว้ {saved} จุดด้วยท่าตัวอย่าง?") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        self.auto.points[:] = [list(q) for _, q, _ in DEMO]
+        self.auto.dwells[:] = [w for _, _, w in DEMO]
+        self._auto_save()
+        self._auto_rows()
+        self.log("✨ ท่าตัวอย่าง: " + " · ".join(f"{AutoCycle.name(k)} {n}" for k, (n, _, _) in enumerate(DEMO))
+                 + " — แนะนำโหมดเส้นตรง")
 
     def auto_remove(self, k):
         if self._auto_busy() or len(self.auto.points) <= 2:
