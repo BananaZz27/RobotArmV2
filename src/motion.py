@@ -1,6 +1,6 @@
 # ตัวป้อนท่าแบบนุ่ม (design: docs/design.md) — คำนวณท่าถัดไปทุก dt วินาที ไม่แตะฮาร์ดแวร์ (test ได้)
 #   goto_q   ไปมุมเป้า: ทุกข้อใช้โปรไฟล์ min-jerk ร่วมกัน → ออกตัวช้า ผ่อนก่อนถึง ถึงพร้อมกัน
-#   goto_xyz ปลายแขนวิ่งเส้นตรงไปจุด (IK ทุก ~1 mm)
+#   goto_xyz ปลายแขนวิ่งเส้นตรงไปจุด (IK ทุก ~1 mm) · goto_line_q เส้นตรงไปท่าที่บันทึกไว้ (แท็บ Auto)
 #   jog_*    กดค้าง = เร่งขึ้นถึงความเร็วที่ตั้ง · release() = ผ่อนจนหยุด
 #   follow   ไล่ตามเป้าที่เปลี่ยนได้ตลอด (slider) ด้วยความเร็ว/ความเร่งจำกัด
 import copy
@@ -48,33 +48,47 @@ class Mover:
         self._set_path([start, goal], 1.875 * dist / (v or self.v), goal)
         return ""
 
-    def goto_xyz(self, x, y, z, phi):
+    def goto_xyz(self, x, y, z, phi, v_cart=None):
         """ปลายแขนวิ่งเส้นตรงไป (x, y, z) mm, φ องศา · ปลายทางคำนวณ IK ไม่ได้ = ไม่ขยับ คืนเหตุผล"""
         elbow_up = self.q[2] >= 0
         end = inverse_kinematics(x, y, z, phi, elbow_up, theta1_prev=self.q[0])
         if not end.ok:
             self.message = end.reason
             return end.reason
+        return self._line_to(np.array([x, y, z], dtype=float), phi, end.q, elbow_up, v_cart)
+
+    def goto_line_q(self, q_goal, v_cart=None):
+        """ปลายแขนวิ่งเส้นตรงไปท่า q_goal (จบที่ q_goal ตรง ๆ — ใช้ในแท็บ Auto) · v_cart = mm/s เฉพาะครั้งนี้"""
+        goal = clamp_q(q_goal)
+        f = forward_kinematics(goal)
+        return self._line_to(np.array([f.x, f.y, f.z]), f.phi, goal, goal[2] >= 0, v_cart)
+
+    def _line_to(self, p1, phi, q_end, elbow_up, v_cart=None):
+        """IK ทุก ~1 mm ตามเส้นตรงจากท่าตอนนี้ไป p1 (จุดสุดท้าย = q_end) · ไปไม่ได้ทั้งเส้น → หมุนข้อต่อแทน"""
         f0 = forward_kinematics(self.q)
-        p0, p1 = np.array([f0.x, f0.y, f0.z]), np.array([x, y, z])
+        p0 = np.array([f0.x, f0.y, f0.z])
         length = float(np.linalg.norm(p1 - p0))
         n = max(1, math.ceil(length / config.IK_STEP_MM))
         points, q_prev = [list(self.q)], self.q
-        for k in range(1, n + 1):                    # IK ทีละจุดตามเส้นตรง (φ ค่อย ๆ เปลี่ยนเป็นเส้นตรงด้วย)
+        for k in range(1, n):                        # IK ทีละจุดตามเส้นตรง (φ ค่อย ๆ เปลี่ยนเป็นเส้นตรงด้วย)
             s = k / n
-            p = p0 + s * (p1 - p0)
-            ik = inverse_kinematics(*p, f0.phi + s * (phi - f0.phi), elbow_up, theta1_prev=q_prev[0])
+            ik = inverse_kinematics(*(p0 + s * (p1 - p0)), f0.phi + s * (phi - f0.phi), elbow_up, theta1_prev=q_prev[0])
             if not ik.ok:                            # กลางทางไม่ได้ → ไปแบบ joint แทน
-                self.goto_q(end.q)
+                self.goto_q(q_end)
                 self.message = "เส้นตรงผ่านจุดที่เอื้อมไม่ถึง → ไปแบบหมุนข้อต่อแทน"
                 return ""
             points.append(clamp_q(ik.q))
             q_prev = ik.q
+        points.append(list(q_end))
+        if max(abs(a - b) for a, b in zip(points[-2], points[-1])) > 10:   # ปลายทางคนละท่า (ศอก/ฐานพลิก) → เส้นตรงต่อไม่ได้
+            self.goto_q(q_end)
+            self.message = "เส้นตรงผ่านจุดที่เอื้อมไม่ถึง → ไปแบบหมุนข้อต่อแทน"
+            return ""
         # เวลา: ปลายแขน ≤ v_cart และทุกข้อ ≤ v (ความเร็วสูงสุดของ min-jerk = 1.875 × ระยะ / T)
         joint_rate = max(max(abs(b - a) for a, b in zip(p, q)) for p, q in zip(points, points[1:])) * n
-        t_cart, t_joint = length / self.v_cart, joint_rate / self.v
+        t_cart, t_joint = length / (v_cart or self.v_cart), joint_rate / self.v
         if t_joint > 3 * t_cart + 1.0:               # เส้นตรงผ่านใกล้ท่าเหยียดสุด ข้อต้องหมุนเร็วมาก → ช้าเกินใช้
-            self.goto_q(end.q)
+            self.goto_q(q_end)
             self.message = "ใกล้ท่าเหยียดสุด → ไปแบบหมุนข้อต่อแทนเส้นตรง"
             return ""
         self._set_path(points, 1.875 * max(t_cart, t_joint), points[-1])

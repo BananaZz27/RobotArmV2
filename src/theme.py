@@ -19,13 +19,13 @@ if DARK:
     ACCENT, OK, WARN, BAD = "#4cc9f0", "#2ec4b6", "#f4a261", "#ef4444"
     TARGET, ACTUAL = "#ff8c42", "#4cc9f0"   # สีเดียวกับภาพ 3D: ส้ม = Target, ฟ้า = ท่าจริง
     # ภาพ 3D: พื้นหลัง (ล่าง, บน), ตารางพื้น, ฐาน, วงระยะเอื้อม (None = ไม่วาด)
-    VIEW = dict(bg="#0f141a", top="#1b2633", grid="#2b3b4b", base="#3a4756", ring="#3d6a80")
+    VIEW = dict(bg="#0f141a", top="#1b2633", grid="#2b3b4b", base="#3a4756", ring="#3d6a80", points="#ffd166")
 else:
     BG, CARD, LINE, RAISED = "#f3f5f8", "#ffffff", "#e2e6ec", "#f0f4fa"
     TEXT, MUTED = "#1f2933", "#6b7685"
     ACCENT, OK, WARN, BAD = "#2563eb", "#2a9d8f", "#c77d14", "#e63946"
     TARGET, ACTUAL = "#ff8c42", "#3a86ff"
-    VIEW = dict(bg="#f4f5f7", top="#dfe3ea", grid="#c9ced6", base="#5b6270", ring=None)
+    VIEW = dict(bg="#f4f5f7", top="#dfe3ea", grid="#c9ced6", base="#5b6270", ring=None, points="#c77d14")
 
 
 def rgba(color, alpha):
@@ -127,6 +127,8 @@ def label(text="", role=None, **kw):
         lbl.setProperty("role", role)
     if role == "tile-value":
         lbl.setFont(_font(FONT_NUM, 15, True))
+    if role == "hint":
+        lbl.setWordWrap(True)                    # คำอธิบายยาวขึ้นบรรทัดใหม่ ไม่ดันหน้าต่างให้กว้าง
     return lbl
 
 

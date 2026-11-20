@@ -16,14 +16,14 @@ from html import escape
 import serial
 from PyQt6.QtCore import QLocale, Qt, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut
-from PyQt6.QtWidgets import (QApplication, QCheckBox, QDoubleSpinBox, QFrame, QSpinBox, QGridLayout, QHBoxLayout, QHeaderView,
+from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QSpinBox, QGridLayout, QHBoxLayout, QHeaderView,
                              QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QScrollArea, QSlider, QSplitter,
                              QTableWidget,
                              QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 import config
 import theme
-from auto_cycle import POINTS_FILE, AutoCycle, load_points, save_points
+from auto_cycle import MAX_POINTS, POINTS_FILE, AutoCycle, load_points, save_points
 from driver import Driver
 from ik_explain import TIP_MAX, diagnose, fmt_ranges
 from ik_sketch import IKSketch
@@ -201,7 +201,7 @@ class MainWindow(QMainWindow):
         """หน้าแท็บเลื่อนขึ้นลงได้ — จอเตี้ยไม่บีบปุ่มจนทับกัน"""
         area = QScrollArea()
         area.setWidgetResizable(True)
-        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         area.setWidget(w)
         return area
 
@@ -497,43 +497,42 @@ class MainWindow(QMainWindow):
         if send:
             self.send()
 
-    # ================= Auto: วนลูป A ⇄ B =================
+    # ================= Auto: ลำดับงาน A → B → C … วนลูป =================
     def _build_auto_tab(self):
-        """แท็บ Auto: สอนจุด A/B → ตั้งความเร็ว/เวลารอ/จำนวนรอบ → Start (แบบเครื่องจักรในโรงงาน)"""
+        """แท็บ Auto: สอนจุด A, B, C … → ตั้งความเร็ว/เวลารอ/จำนวนรอบ → Start (แบบเครื่องจักรในโรงงาน)"""
         self.auto = AutoCycle(load_points(self.auto_file))
         self._auto_seen = "idle"
 
         pts, pl = theme.card("จุดทำงาน", "ตั้งท่าด้วย Joint / Jog / IK (หรือปลด Torque แล้วจับแขนวาง) → กดบันทึก")
-        grid = QGridLayout()
-        grid.setColumnStretch(1, 1)
-        self.auto_labels = []
-        for k in range(2):
-            letter = theme.label(AutoCycle.name(k), "tile-value")
-            info = theme.label("", "hint")
-            info.setFont(theme.mono(9))
-            rec = theme.button("📍 บันทึกท่านี้", tip=f"ใช้ท่า Target ตอนนี้เป็นจุด {AutoCycle.name(k)}")
-            go = theme.button("ไปจุดนี้", "ghost")
-            rec.clicked.connect(lambda _=False, k=k: self.auto_record(k))
-            go.clicked.connect(lambda _=False, k=k: self.auto_goto(k))
-            for col, w in enumerate((letter, info, rec, go)):
-                grid.addWidget(w, k, col)
-            self.auto_labels.append(info)
-        pl.addLayout(grid)
+        self.auto_grid = QGridLayout()
+        self.auto_grid.setColumnStretch(1, 1)
+        pl.addLayout(self.auto_grid)
+        self.auto_add_btn = theme.button("＋ เพิ่มจุด", "ghost", f"เพิ่มจุดถัดไปจากท่า Target ตอนนี้ (สูงสุด {MAX_POINTS} จุด)")
+        self.auto_add_btn.clicked.connect(self.auto_add)
+        pl.addWidget(self.auto_add_btn)
 
         setting, sl = theme.card("ตั้งค่า")
         form = QGridLayout()
         form.setColumnStretch(1, 1)
         form.setColumnStretch(3, 1)
+        self.auto_mode = QComboBox()
+        self.auto_mode.addItem("หมุนข้อต่อ (เร็วสุด)", "joint")
+        self.auto_mode.addItem("เส้นตรง (ปลายแขนวิ่งตรง)", "line")
         self.auto_speed = _spin(10, config.V_JOINT, 10, " °/s", 60, decimals=0)
+        self.auto_vcart = _spin(10, config.V_CART, 10, " mm/s", 100, decimals=0)
         self.auto_dwell = _spin(0, 30, 0.1, " s", 0.5)
         self.auto_cycles = QSpinBox(minimum=0, maximum=100000, value=0)
         self.auto_cycles.setSpecialValueText("∞ ไม่จำกัด")
-        for k, (name, w) in enumerate((("ความเร็ว", self.auto_speed), ("รอที่จุด", self.auto_dwell),
+        for k, (name, w) in enumerate((("การเคลื่อนที่", self.auto_mode), ("รอที่จุด", self.auto_dwell),
+                                        ("ความเร็วข้อต่อ", self.auto_speed), ("ความเร็วเส้นตรง", self.auto_vcart),
                                         ("จำนวนรอบ", self.auto_cycles))):
             form.addWidget(theme.label(name, "name"), k // 2, (k % 2) * 2)
             form.addWidget(w, k // 2, (k % 2) * 2 + 1)
         sl.addLayout(form)
-        sl.addWidget(theme.label("ความเร็ว = ข้อที่หมุนมากสุดไม่เกินค่านี้ · วิ่งแบบนุ่ม (min-jerk) ทุกช่วง", "hint"))
+        sl.addWidget(theme.label("หมุนข้อต่อ: ข้อที่หมุนมากสุดไม่เกินความเร็วข้อต่อ · เส้นตรง: ปลายแขนไม่เกินความเร็วเส้นตรง "
+                                 "(ผ่านจุดที่เอื้อมไม่ถึง / ใกล้ท่าเหยียดสุด → ช่วงนั้นหมุนข้อต่อแทน, บอกใน Log)", "hint"))
+        self.auto_mode.currentIndexChanged.connect(self._auto_mode_changed)
+        self._auto_mode_changed()
 
         run, rl = theme.card("ควบคุม")
         btns = QHBoxLayout()
@@ -559,11 +558,42 @@ class MainWindow(QMainWindow):
         rl.addLayout(tiles)
         rl.addWidget(theme.label("หยุดเองเมื่อ: กด STOP / Space, Jog, ขยับ slider, สั่งท่าใหม่, ปลด Torque, "
                                  "แขนหยุดก่อนถึงจุด (ไฟตก / servo ไม่ตอบ)", "hint"))
-        self._auto_show_points()
+        self._auto_rows()
         self._auto_show_status(0.0)
         return self._page(run, pts, setting)        # สถานะ/ตัวนับอยู่บนสุด — ดูบ่อยสุดตอนวิ่ง
 
+    def _auto_mode_changed(self):
+        line = self.auto_mode.currentData() == "line"
+        self.auto_vcart.setEnabled(line)
+        self.auto_speed.setEnabled(not line)
+
+    def _auto_rows(self):
+        """สร้างแถวจุด A, B, C … ใหม่ (หลังเพิ่ม/ลบจุด) + อัปเดตภาพ 3D"""
+        while self.auto_grid.count():
+            w = self.auto_grid.takeAt(0).widget()
+            if w is not None:
+                w.deleteLater()
+        self.auto_labels = []
+        n = len(self.auto.points)
+        for k in range(n):
+            letter = theme.label(AutoCycle.name(k), "tile-value")
+            info = theme.label("", "hint")
+            info.setFont(theme.mono(9))
+            rec = theme.button("📍 บันทึก", tip=f"ใช้ท่า Target ตอนนี้เป็นจุด {AutoCycle.name(k)}")
+            go = theme.button("▶ ไป", "ghost", f"ไปจุด {AutoCycle.name(k)} (ไม่วนลูป)")
+            rm = theme.button("✕", "ghost", "ลบจุดนี้ (ต้องเหลืออย่างน้อย 2 จุด)")
+            rm.setEnabled(n > 2)
+            rec.clicked.connect(lambda _=False, k=k: self.auto_record(k))
+            go.clicked.connect(lambda _=False, k=k: self.auto_goto(k))
+            rm.clicked.connect(lambda _=False, k=k: self.auto_remove(k))
+            for col, w in enumerate((letter, info, rec, go, rm)):
+                self.auto_grid.addWidget(w, k, col)
+            self.auto_labels.append(info)
+        self.auto_add_btn.setEnabled(n < MAX_POINTS)
+        self._auto_show_points()
+
     def _auto_show_points(self):
+        shown = []
         for k, info in enumerate(self.auto_labels):
             q = self.auto.points[k]
             if q is None:
@@ -571,6 +601,9 @@ class MainWindow(QMainWindow):
                 continue
             fk = forward_kinematics(q)
             info.setText("q " + " ".join(f"{v:6.1f}" for v in q) + f"\n(x, y, z) = ({fk.x:.0f}, {fk.y:.0f}, {fk.z:.0f}) mm")
+            shown.append((AutoCycle.name(k), (fk.x, fk.y, fk.z)))
+        if hasattr(self.viewer, "show_points"):
+            self.viewer.show_points(shown)
 
     def _auto_show_status(self, now):
         a = self.auto
@@ -581,20 +614,49 @@ class MainWindow(QMainWindow):
         self.auto_tiles["รอบต่อนาที"].setText("—" if not t else f"{60 / t:.1f}")
         self.auto_start_btn.setEnabled(not a.running)
 
+    def _auto_save(self):
+        try:
+            save_points(self.auto.points, self.auto_file)
+        except OSError as e:
+            self.log(f"⚠ บันทึกลงไฟล์ไม่ได้ (ใช้ได้จนปิดโปรแกรม): {e}")
+
+    def _auto_busy(self):
+        if self.auto.running:
+            self.log("❌ แก้ลำดับงานไม่ได้ระหว่างวิ่ง — กด Stop ก่อน")
+        return self.auto.running
+
     def auto_record(self, k):
-        """บันทึกท่า Target ตอนนี้เป็นจุด A/B (เก็บลงไฟล์ ใช้ได้ครั้งหน้า)"""
+        """บันทึกท่า Target ตอนนี้เป็นจุด k (เก็บลงไฟล์ ใช้ได้ครั้งหน้า)"""
+        if self._auto_busy():
+            return
         q = [round(v, 1) for v in self.q_target]
         why = check_limits(q)
         if why:
             self.log(f"❌ ไม่บันทึกจุด {AutoCycle.name(k)}: {why}")
             return
         self.auto.points[k] = q
-        try:
-            save_points(self.auto.points, self.auto_file)
-        except OSError as e:
-            self.log(f"⚠ บันทึกลงไฟล์ไม่ได้ (ใช้ได้จนปิดโปรแกรม): {e}")
+        self._auto_save()
         self._auto_show_points()
         self.log(f"📍 จุด {AutoCycle.name(k)} = " + "  ".join(f"{v:.1f}" for v in q))
+
+    def auto_add(self):
+        """เพิ่มจุดท้ายลำดับ = ท่า Target ตอนนี้"""
+        if self._auto_busy() or len(self.auto.points) >= MAX_POINTS:
+            return
+        self.auto.points.append(None)
+        self._auto_rows()
+        self.auto_record(len(self.auto.points) - 1)
+
+    def auto_remove(self, k):
+        if self._auto_busy() or len(self.auto.points) <= 2:
+            return
+        del self.auto.points[k]
+        self._auto_save()
+        self._auto_rows()
+        self.log(f"✕ ลบจุด — ลำดับงานตอนนี้: {self._auto_sequence()}")
+
+    def _auto_sequence(self):
+        return " → ".join(AutoCycle.name(k) for k in range(len(self.auto.points))) + " → A"
 
     def auto_goto(self, k):
         q = self.auto.points[k]
@@ -606,18 +668,24 @@ class MainWindow(QMainWindow):
 
     def auto_start(self):
         if None in self.auto.points:
-            self.log("❌ บันทึกจุด A และ B ก่อนกด Start")
+            missing = ", ".join(AutoCycle.name(k) for k, q in enumerate(self.auto.points) if q is None)
+            self.log(f"❌ บันทึกจุดให้ครบก่อนกด Start (ยังขาด {missing})")
             return
+        seq = self._auto_sequence()
         if not self.link.simulated and QMessageBox.question(
                 self, "เริ่มวนลูปกับแขนจริง",
-                "แขนจริงจะวิ่ง A ⇄ B เองต่อเนื่อง\nเคลียร์พื้นที่รอบแขน และพร้อมกด STOP / Space\n\nเริ่มเลย?") \
-                != QMessageBox.StandardButton.Yes:
+                f"แขนจริงจะวิ่ง {seq} เองต่อเนื่อง\n"
+                "เคลียร์พื้นที่รอบแขน และพร้อมกด STOP / Space\n\n"
+                "เริ่มเลย?") != QMessageBox.StandardButton.Yes:
             return
         self.auto.cycles = self.auto_cycles.value()
         first = self.auto.start(time.monotonic())
         self._auto_seen = "move"
-        self.log(f"▶ Auto เริ่ม: A ⇄ B · {self.auto_speed.value():.0f} °/s · รอ {self.auto_dwell.value():.1f} s · "
-                 + (f"{self.auto.cycles} รอบ" if self.auto.cycles else "ไม่จำกัดรอบ") + " — กด STOP / Space เพื่อหยุด")
+        line = self.auto_mode.currentData() == "line"
+        speed = f"เส้นตรง {self.auto_vcart.value():.0f} mm/s" if line else f"{self.auto_speed.value():.0f} °/s"
+        self.log(f"▶ Auto เริ่ม: {seq} · {speed} · รอ {self.auto_dwell.value():.1f} s · "
+                 + (f"{self.auto.cycles} รอบ" if self.auto.cycles else "ไม่จำกัดรอบ")
+                 + " — กด STOP / Space เพื่อหยุด")
         self._auto_send(first)
 
     def auto_finish_cycle(self):
@@ -630,8 +698,12 @@ class MainWindow(QMainWindow):
             self.auto.stop("สั่งแขนไม่ได้ (ดู Log)")
             return
         self.set_target(q)
-        v = self.auto_speed.value()
-        self.driver.do(lambda m: m.goto_q(q, v=v))
+        if self.auto_mode.currentData() == "line" and not self.auto.approaching:   # ปลายแขนวิ่งเส้นตรง จบที่ท่าที่บันทึกไว้ตรง ๆ
+            v = self.auto_vcart.value()
+            self.driver.do(lambda m: m.goto_line_q(q, v_cart=v))
+        else:
+            v = self.auto_speed.value()
+            self.driver.do(lambda m: m.goto_q(q, v=v))
 
     def _auto_tick(self, now):
         """เรียกทุก 50 ms: แขนถึงจุดแล้ว → รอ → สั่งจุดถัดไป"""

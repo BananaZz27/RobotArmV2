@@ -1,4 +1,4 @@
-# วนลูปอัตโนมัติ A → B → A … แบบเครื่องจักรในโรงงาน (ไม่มี GUI → test ได้)
+# วนลูปอัตโนมัติ A → B → C … → A แบบเครื่องจักรในโรงงาน (ไม่มี GUI → test ได้)
 #   หน้าต่างเรียก update() ทุกรอบ poll พร้อมบอกว่าแขนยังวิ่งอยู่ไหม (mover.busy) และท่าที่สั่งตอนนี้ (mover.q)
 #   update() คืน "จุดถัดไปที่ต้องสั่งไป" (หรือ None = รอ) — การสั่งจริง + ตรวจความปลอดภัยทำที่หน้าต่าง (_ready)
 #
@@ -10,11 +10,12 @@ from pathlib import Path
 
 ARRIVE_TOL = 0.5        # ท่าที่สั่งห่างจุดหมาย ≤ 0.5° ทุกข้อ = ถึงแล้ว (มากกว่านั้น = ถูกหยุดกลางทาง)
 POINTS_FILE = Path(__file__).resolve().parent.parent / "auto_points.json"   # จุดที่บันทึกไว้ (ไม่อยู่ใน git)
+MAX_POINTS = 8          # จุดสูงสุดในลำดับงาน (A … H)
 
 
 @dataclass
 class AutoCycle:
-    points: list                         # [[q1..q4], ...] — จุด A, B (เรียงตามลำดับที่วิ่ง)
+    points: list                         # [[q1..q4], ...] — จุด A, B, C … (เรียงตามลำดับที่วิ่ง)
     speed: float = 60.0                  # ความเร็วข้อต่อสูงสุด (°/s)
     dwell: float = 0.5                   # หยุดรอที่แต่ละจุด (s) — เช่นเวลาหยิบ/วางชิ้นงาน
     cycles: int = 0                      # จำนวนรอบ (0 = ไม่จำกัด จนกด Stop)
@@ -35,6 +36,11 @@ class AutoCycle:
         self.running, self.phase, self.index, self.done = True, "move", 0, 0
         self.last_cycle_s, self.reason, self._cycle_start, self._first_arrival = None, "", None, True
         return self.points[0]
+
+    @property
+    def approaching(self):
+        """กำลังวิ่งไปจุดแรกครั้งแรก (เริ่มจากท่าไหนก็ได้ — หน้าต่างใช้หมุนข้อต่อเสมอ ไม่วิ่งเส้นตรงผ่านท่าแปลก ๆ)"""
+        return self.running and self._first_arrival
 
     def stop(self, reason="หยุดโดยผู้ใช้"):
         if self.running:
@@ -87,14 +93,15 @@ class AutoCycle:
 
 
 def load_points(path=POINTS_FILE):
-    """จุดที่บันทึกไว้ครั้งก่อน → [qA, qB] (ไม่มีไฟล์/อ่านไม่ได้ = [None, None])"""
+    """จุดที่บันทึกไว้ครั้งก่อน → [q, q, ...] (ไม่มีไฟล์/อ่านไม่ได้ = [None, None] — จุด A, B ว่าง)"""
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-        pts = [data.get("A"), data.get("B")]
-        return [[float(v) for v in p] if p else None for p in pts]
-    except (OSError, ValueError, TypeError, AttributeError):
+        pts = data["points"] if "points" in data else [data.get("A"), data.get("B")]   # รูปแบบเก่ามีแค่ A, B
+        pts = [[float(v) for v in p] if p else None for p in pts][:MAX_POINTS]
+        return pts + [None] * (2 - len(pts))
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
         return [None, None]
 
 
 def save_points(points, path=POINTS_FILE):
-    Path(path).write_text(json.dumps({"A": points[0], "B": points[1]}, indent=1), encoding="utf-8")
+    Path(path).write_text(json.dumps({"points": points}, indent=1), encoding="utf-8")
